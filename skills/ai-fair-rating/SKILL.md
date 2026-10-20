@@ -15,6 +15,7 @@ Generate the current developer ranking from public Artificial Analysis data usin
 - Apply the same rule to all developers. Allow every API reasoning setting, including max, and choose by the measured score. Do not enforce xhigh or maintain model-name exceptions. A subscription-only variant with no API provider is ineligible under the general rule.
 - Choose the highest exact eligible score per developer, then retain scores **at least 35** by default. Rank before rounding; display two decimals.
 - Keep companies bold, model names readable, and country flags above the values with a visible gap. Preserve the zero baseline.
+- Inside each bar, stack supported input icons from bottom to top: text, photo, audio, video. Read the source's boolean `inputModalityText`, `inputModalityImage`, `inputModalitySpeech`, and `inputModalityVideo` fields; omit unsupported types and fail on missing or malformed flags. These are input capabilities of the selected model, not output capabilities or all models from the developer. Include a legend, preserve icon clearance inside the bars, and export the types in CSV.
 - Use the subtitle `Рейтинг лучших разработчиков AI по их лучшей модели`. Put `https://t.me/warlocksu` and `https://warlock.su` in the upper-right corner by default; CLI options allow replacement.
 
 ## Run

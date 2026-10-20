@@ -11,6 +11,8 @@
   "restricted_effort": {},
   "snapshot_sha256": "81df4e4547f71e72ad8e5723d402f8f476153f0c2fba22954da7b66d46c40d7d",
   "layout": {
-    "minimum_flag_value_gap_points": 7.0
+    "minimum_flag_value_gap_points": 7.0,
+    "input_icons_shown": 30,
+    "minimum_input_icon_bar_clearance_points": 9.0
   }
 }

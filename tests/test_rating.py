@@ -16,6 +16,8 @@ def model(slug, score, creator="example", effort=None, estimated=False, **extra)
     return {"slug": slug, "name": slug, "shortName": slug, "intelligenceIndex": score,
             "intelligenceIndexIsEstimated": estimated,
             "hostModelCount": 1,
+            "inputModalityText": True, "inputModalityImage": False,
+            "inputModalitySpeech": False, "inputModalityVideo": False,
             "creator": {"id": creator, "slug": creator, "name": creator, "country": "us", "color": "#123456"},
             "effort": {"slug": effort} if effort else None, **extra}
 
@@ -79,6 +81,20 @@ class SelectionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "hostModelCount"):
             rating.select_models([missing])
 
+    def test_input_modalities_belong_to_selected_model(self):
+        rows = rating.select_models([
+            model("winner", 50, inputModalityImage=True, inputModalitySpeech=True, inputModalityVideo=True),
+            model("older", 40), model("text-only", 39, "another"),
+        ])
+        self.assertEqual(rows[0]["input_modalities"], ["text", "image", "audio", "video"])
+        self.assertEqual(rows[1]["input_modalities"], ["text"])
+
+    def test_missing_or_malformed_input_modalities_fail(self):
+        for _, field, _ in rating.INPUT_MODALITIES:
+            for invalid in (None, 0, 1, "true"):
+                with self.subTest(field=field, value=invalid), self.assertRaisesRegex(ValueError, field):
+                    rating.select_models([model("bad-modality", 40, **{field: invalid})])
+
 
 class SourceTests(unittest.TestCase):
     def test_public_payload_decoding(self):
@@ -107,7 +123,8 @@ class OutputTests(unittest.TestCase):
         from PIL import Image
 
         snapshot = {"source_url": rating.SOURCE, "fetched_at": "2026-10-15T20:00:00+00:00",
-                    "index_version": "4.3.2", "models": [model("first", 41.123456), model("second", 35, "second")]}
+                    "index_version": "4.3.2", "models": [model("first", 41.123456, inputModalityImage=True,
+                    inputModalitySpeech=True, inputModalityVideo=True), model("second", 35, "second")]}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "source.json"
@@ -120,7 +137,10 @@ class OutputTests(unittest.TestCase):
             self.assertTrue(metadata["public_api_required"])
             self.assertEqual(metadata["restricted_effort"], {})
             self.assertGreaterEqual(metadata["layout"]["minimum_flag_value_gap_points"], 6)
+            self.assertEqual(metadata["layout"]["input_icons_shown"], 5)
+            self.assertGreaterEqual(metadata["layout"]["minimum_input_icon_bar_clearance_points"], 0)
             self.assertIn("41.123456", (output / "rating.csv").read_text(encoding="utf-8-sig"))
+            self.assertIn("text;image;audio;video", (output / "rating.csv").read_text(encoding="utf-8-sig"))
             self.assertIn("https://t.me/warlocksu", (output / "rating.svg").read_text(encoding="utf-8"))
             with Image.open(output / "rating.png") as image:
                 self.assertGreater(image.width, 2000)

@@ -1,15 +1,15 @@
-﻿rank,company,country,model,score,effort,api_provider_count,url
-1,Anthropic,us,"Claude Opus 5.5 (Max, Default Fallback)",57.6223698102963,max,9,https://artificialanalysis.ai/models/claude-opus-5-5
-2,OpenAI,us,GPT-6 Astra (Max),52.673669395513,max,11,https://artificialanalysis.ai/models/gpt-6-astra
-3,Google,us,Gemini 4 Argon (High),52.5605655745982,high,4,https://artificialanalysis.ai/models/gemini-4-argon
-4,Meta,us,Muse Wonder (Max),52.393894697293,max,2,https://artificialanalysis.ai/models/muse-wonder
-5,SpaceXAI,us,Grok 4.7 (Xhigh),46.4465506302286,xhigh,3,https://artificialanalysis.ai/models/grok-4-7
-6,Xiaomi,cn,MiMo-V2.6-Pro,46.3242065310383,,5,https://artificialanalysis.ai/models/mimo-v2-6-pro
-7,Alibaba,cn,Qwen3.8 Max (0902),45.4152084980521,,1,https://artificialanalysis.ai/models/qwen3-8-max
-8,DeepSeek,cn,DeepSeek V4.1 Flash 1017 (Max),45.0965048681912,max,10,https://artificialanalysis.ai/models/deepseek-v4-1-flash-1017
-9,Z AI,cn,GLM-5.3 (Max),44.777392385614,max,27,https://artificialanalysis.ai/models/glm-5-3
-10,StepFun,cn,Step 5 Preview,43.7343049141614,,1,https://artificialanalysis.ai/models/step-5
-11,Kimi,cn,Kimi K3 (Max),43.5938229518782,max,20,https://artificialanalysis.ai/models/kimi-k3
-12,MiniMax,cn,MiniMax-M3.1-Flash,42.7057475126235,,1,https://artificialanalysis.ai/models/minimax-m3-1-flash
-13,InclusionAI,cn,Ling 3.1 Flash,41.0906200397391,,2,https://artificialanalysis.ai/models/ling-3-1-flash
-14,Mistral,fr,Mistral Large 4 Preview,38.3770408917494,,2,https://artificialanalysis.ai/models/mistral-large-4
+﻿rank,company,country,model,score,effort,api_provider_count,input_modalities,url
+1,Anthropic,us,"Claude Opus 5.5 (Max, Default Fallback)",57.6223698102963,max,9,text;image,https://artificialanalysis.ai/models/claude-opus-5-5
+2,OpenAI,us,GPT-6 Astra (Max),52.673669395513,max,11,text;image,https://artificialanalysis.ai/models/gpt-6-astra
+3,Google,us,Gemini 4 Argon (High),52.5605655745982,high,4,text;image,https://artificialanalysis.ai/models/gemini-4-argon
+4,Meta,us,Muse Wonder (Max),52.393894697293,max,2,text;image;audio;video,https://artificialanalysis.ai/models/muse-wonder
+5,SpaceXAI,us,Grok 4.7 (Xhigh),46.4465506302286,xhigh,3,text;image,https://artificialanalysis.ai/models/grok-4-7
+6,Xiaomi,cn,MiMo-V2.6-Pro,46.3242065310383,,5,text;image;audio;video,https://artificialanalysis.ai/models/mimo-v2-6-pro
+7,Alibaba,cn,Qwen3.8 Max (0902),45.4152084980521,,1,text;image,https://artificialanalysis.ai/models/qwen3-8-max
+8,DeepSeek,cn,DeepSeek V4.1 Flash 1017 (Max),45.0965048681912,max,10,text;image,https://artificialanalysis.ai/models/deepseek-v4-1-flash-1017
+9,Z AI,cn,GLM-5.3 (Max),44.777392385614,max,27,text,https://artificialanalysis.ai/models/glm-5-3
+10,StepFun,cn,Step 5 Preview,43.7343049141614,,1,text;image,https://artificialanalysis.ai/models/step-5
+11,Kimi,cn,Kimi K3 (Max),43.5938229518782,max,20,text;image,https://artificialanalysis.ai/models/kimi-k3
+12,MiniMax,cn,MiniMax-M3.1-Flash,42.7057475126235,,1,text;image,https://artificialanalysis.ai/models/minimax-m3-1-flash
+13,InclusionAI,cn,Ling 3.1 Flash,41.0906200397391,,2,text,https://artificialanalysis.ai/models/ling-3-1-flash
+14,Mistral,fr,Mistral Large 4 Preview,38.3770408917494,,2,text;image,https://artificialanalysis.ai/models/mistral-large-4
