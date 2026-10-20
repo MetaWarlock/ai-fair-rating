@@ -1,6 +1,6 @@
 # AI Fair Rating
 
-**Один разработчик — одна лучшая измеренная модель.**
+**Один разработчик — одна лучшая измеренная модель, доступная по API.**
 
 Skill и небольшой Python-скрипт строят понятный рейтинг по [Artificial Analysis Intelligence Index](https://artificialanalysis.ai/evaluations/artificial-analysis-intelligence-index). Режимы и версии одной компании не занимают несколько мест на графике.
 
@@ -12,12 +12,14 @@ Skill и небольшой Python-скрипт строят понятный р
 
 1. Загружается полный публичный каталог [Artificial Analysis](https://artificialanalysis.ai/models/comparisons).
 2. Остаются только числовые, независимо измеренные результаты. Предварительные оценки и записи без явного статуса измерения исключаются.
-3. У OpenAI и Anthropic допускается **только xhigh**. У остальных разработчиков ограничений режима нет.
-4. У Meta исключён релиз **Muse Wonder Full**: он [не доступен через публичный API](https://dev.meta.ai/docs/models). Используется измеренный результат обычной Muse Wonder. Это правило доступности; гипотеза, что Full представляет собой только мультиагентный harness, не считается установленным фактом.
+3. У модели должен быть хотя бы один API-провайдер в каталоге AA: **`hostModelCount > 0`**. Ноль исключается; отсутствие поля или неверный формат вызывают понятную ошибку. Доступность не определяется по цене, названию модели или открытым весам.
+4. Для всех компаний разрешены любые доступные по API режимы рассуждения, включая **max**. Исключений по разработчику или названию модели нет.
 5. По `creator.id` выбирается одна модель с максимальным исходным баллом.
 6. На график попадают результаты **от 35 баллов включительно**. Отбор и сортировка выполняются до округления; подписи показывают два знака.
 
 Страны и названия разработчиков берутся из самого источника. Количество компаний меняется с обновлением данных. Это сравнение достижений в одном индексе при указанных настройках; оно не утверждает равный вычислительный бюджет или доступность модели в определённой подписке. Название режима max само по себе не доказывает мультиагентность.
+
+Например, Muse Wonder Full не проходит общий фильтр: AA не указывает у неё API-провайдера, а [Meta подтверждает отсутствие публичного API](https://dev.meta.ai/docs/models). Для Meta выбирается обычная Muse Wonder. Если Full появится в API и получит лучший измеренный балл, она сможет попасть в рейтинг без изменения правил или кода.
 
 ## Запуск
 
@@ -54,7 +56,7 @@ python skills/ai-fair-rating/scripts/rating.py --output output
 | --- | --- |
 | `rating.png` | График для публикации |
 | `rating.svg` | Масштабируемая версия; контакты кликабельны |
-| `rating.csv` | Модели, страны, точные баллы и ссылки |
+| `rating.csv` | Модели, страны, точные баллы, режимы, число API-провайдеров и ссылки |
 | `metadata.json` | Дата получения данных, версия индекса, правила и проверка зазора флагов |
 | `snapshot.json` | Исходный снимок для воспроизводимого построения |
 
@@ -112,4 +114,4 @@ python -m unittest discover -s tests -v
 
 Код и инструкции: [MIT](LICENSE). Флаги: Twemoji 14.0.2, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), Twitter, Inc. and other contributors; [атрибуция](skills/ai-fair-rating/assets/flags/ATTRIBUTION.md).
 
-AI Fair Rating is a reusable agent skill and CLI for a deduplicated Artificial Analysis developer ranking. One measured model per developer, xhigh-only for OpenAI/Anthropic, a minimum score of 35, and reproducible snapshots. The skill instructions are in English; chart labels and this guide are in Russian.
+AI Fair Rating is a reusable agent skill and CLI for a deduplicated Artificial Analysis developer ranking. Each developer's best measured API model, unrestricted reasoning effort, a minimum score of 35, and reproducible snapshots. The skill instructions are in English; chart labels and this guide are in Russian.

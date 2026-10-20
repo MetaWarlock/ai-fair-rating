@@ -1,19 +1,15 @@
 {
   "source_url": "https://artificialanalysis.ai/models/comparisons",
-  "fetched_at": "2026-10-20T13:35:19.701598+00:00",
+  "fetched_at": "2026-10-20T14:31:30.095616+00:00",
   "index_version": "4.3.2",
   "catalog_entries": 706,
   "developers_shown": 14,
   "minimum_score_inclusive": 35,
   "estimated_scores_included": false,
-  "restricted_effort": {
-    "openai": "xhigh",
-    "anthropic": "xhigh"
-  },
-  "excluded_releases": [
-    "muse-wonder-full"
-  ],
-  "snapshot_sha256": "845b94db40a59642e200de1666025cab3faf1164419e5b7c5f110b6cfa2aa0bc",
+  "public_api_required": true,
+  "api_availability_field": "hostModelCount > 0",
+  "restricted_effort": {},
+  "snapshot_sha256": "81df4e4547f71e72ad8e5723d402f8f476153f0c2fba22954da7b66d46c40d7d",
   "layout": {
     "minimum_flag_value_gap_points": 7.0
   }

@@ -1,4 +1,4 @@
 interface:
   display_name: "AI Fair Rating"
-  short_description: "One measured flagship per AI developer"
+  short_description: "Each AI developer's best measured API model"
   default_prompt: "Use $ai-fair-rating to build the latest AI developer ranking."

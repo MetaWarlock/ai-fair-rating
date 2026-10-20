@@ -1,6 +1,6 @@
 ---
 name: ai-fair-rating
-description: "Build or refresh an Artificial Analysis Intelligence Index chart with one independently measured flagship per AI developer, country flags, and transparent reasoning-effort filters. Use for AI Fair Rating or a deduplicated AI developer ranking; not for subscription prices or unrelated benchmarks."
+description: "Build or refresh an Artificial Analysis Intelligence Index chart with each AI developer's best independently measured API model and country flags. Use for AI Fair Rating or a deduplicated AI developer ranking; not for subscription prices or unrelated benchmarks."
 ---
 
 # AI Fair Rating
@@ -11,8 +11,8 @@ Generate the current developer ranking from public Artificial Analysis data usin
 
 - Group by the source's `creator.id`, using its developer names and countries.
 - Include only finite numeric `intelligenceIndex` scores with `intelligenceIndexIsEstimated` explicitly false. Missing status is not a measured result.
-- For OpenAI and Anthropic, require `effort.slug == "xhigh"`. Do not fall back to max or another setting. Other developers have no effort restriction.
-- Exclude the `muse-wonder-full` release, including its effort variants: it is not offered through the public Meta Model API. Use the eligible Muse Wonder result for Meta. This is an availability rule, not a claim that Full is an ensemble or merely a harness mode.
+- Require public API availability: the source must list at least one API provider (`hostModelCount` is a positive integer). Exclude zero; fail with an actionable error on missing or malformed availability. Do not infer availability from prices, open weights, model names, or effort labels.
+- Apply the same rule to all developers. Allow every API reasoning setting, including max, and choose by the measured score. Do not enforce xhigh or maintain model-name exceptions. A subscription-only variant with no API provider is ineligible under the general rule.
 - Choose the highest exact eligible score per developer, then retain scores **at least 35** by default. Rank before rounding; display two decimals.
 - Keep companies bold, model names readable, and country flags above the values with a visible gap. Preserve the zero baseline.
 - Use the subtitle `Рейтинг лучших разработчиков AI по их лучшей модели`. Put `https://t.me/warlocksu` and `https://warlock.su` in the upper-right corner by default; CLI options allow replacement.

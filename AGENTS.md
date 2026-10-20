@@ -2,7 +2,7 @@
 
 Keep this project small: one self-contained skill and one Python entry point. Prefer the standard library; do not add a web app, database, scheduler, or abstraction layer without a concrete request.
 
-The ranking rules live in `skills/ai-fair-rating/SKILL.md`. Keep the script, README, and examples consistent with those rules. Filter out estimated and missing scores before selecting each creator's best eligible model. Compare full precision scores; 35 is included. Never substitute max for OpenAI/Anthropic xhigh. Exclude the Muse Wonder Full release because it is not offered through the public API; do not present a hypothesis about its architecture as fact.
+The ranking rules live in `skills/ai-fair-rating/SKILL.md`. Keep the script, README, and examples consistent with those rules. Filter out estimated and missing scores and models without a public API before selecting each creator's best eligible model. API availability requires a positive integer `hostModelCount` from the source; missing or malformed availability is an actionable error. Apply the same rule to every developer, with no effort restrictions or model-name exceptions. Compare full precision scores; 35 is included. Do not present a hypothesis about a model's architecture as fact.
 
 Use public source data; do not infer scores, countries, or unavailable settings. A source format change must produce an actionable error instead of silently using the initial few models or an old snapshot.
 

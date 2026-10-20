@@ -15,6 +15,7 @@ spec.loader.exec_module(rating)
 def model(slug, score, creator="example", effort=None, estimated=False, **extra):
     return {"slug": slug, "name": slug, "shortName": slug, "intelligenceIndex": score,
             "intelligenceIndexIsEstimated": estimated,
+            "hostModelCount": 1,
             "creator": {"id": creator, "slug": creator, "name": creator, "country": "us", "color": "#123456"},
             "effort": {"slug": effort} if effort else None, **extra}
 
@@ -23,7 +24,7 @@ class SelectionTests(unittest.TestCase):
     def test_measured_winner_and_inclusive_threshold(self):
         rows = rating.select_models([
             model("estimate", 90, estimated=True), model("measured", 41.123456),
-            model("duplicate", 40), model("at-threshold", 35, "threshold"),
+            model("almost-equal", 41.123455), model("at-threshold", 35, "threshold"),
             model("below", 34.99999, "below"), model("no-score", None, "missing"),
             model("nan", float("nan"), "nan"), model("boolean", True, "bool"),
             model("unknown-status", 80, "unknown", estimated=None),
@@ -31,31 +32,52 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual([m["slug"] for m in rows], ["measured", "at-threshold"])
         self.assertEqual(rows[0]["score"], 41.123456)
 
-    def test_effort_limits_and_creator_grouping(self):
+    def test_unrestricted_effort_and_creator_grouping(self):
         models = []
-        for creator in ("openai", "anthropic"):
+        for creator in ("openai", "anthropic", "other"):
             models.extend([model(creator + "-max", 70, creator, "max"),
                            model(creator + "-high", 60, creator, "high"),
                            model(creator + "-xhigh", 45, creator, "xhigh"),
                            model(creator + "-old", 44, creator, "xhigh")])
-        models += [model("other-max", 47, "other", "max"), model("other-low", 40, "other", "low")]
         rows = rating.select_models(models)
         self.assertEqual(len(rows), 3)
-        self.assertEqual(rows[0]["slug"], "other-max")
-        self.assertTrue(all(m["effort"] == "xhigh" for m in rows[1:]))
+        self.assertTrue(all(m["effort"] == "max" for m in rows))
         self.assertEqual(len({m["creator_id"] for m in rows}), 3)
 
-    def test_no_fallback_to_max(self):
-        self.assertEqual(rating.select_models([model("only-max", 90, "openai", "max")]), [])
-
-    def test_meta_uses_wonder_instead_of_full_or_its_effort_variants(self):
+    def test_selects_best_score_rather_than_effort_label(self):
         rows = rating.select_models([
-            model("muse-wonder-full", 56, "meta", "max"),
-            model("muse-wonder-full-xhigh", 55, "meta", "xhigh", release={"slug": "muse-wonder-full"}),
-            model("muse-wonder", 52.393894697293, "meta", "max"),
-            model("muse-spark-1-3", 48, "meta", "max"),
+            model("max", 40, "openai", "max"), model("high", 42, "openai", "high"),
+            model("lower-exact-score", 41.999999, "another", "max"),
         ])
-        self.assertEqual([row["slug"] for row in rows], ["muse-wonder"])
+        self.assertEqual([row["slug"] for row in rows], ["high", "lower-exact-score"])
+
+    def test_api_filter_applies_before_best_model_for_every_developer(self):
+        for creator in ("openai", "anthropic", "meta", "other"):
+            with self.subTest(creator=creator):
+                rows = rating.select_models([
+                    model("offline-best", 90, creator, "max", hostModelCount=0),
+                    model("online-estimate", 95, creator, "max", estimated=True),
+                    model("online-best", 52, creator, "max", hostModelCount=2),
+                    model("online-older", 48, creator, "xhigh"),
+                ])
+                self.assertEqual([row["slug"] for row in rows], ["online-best"])
+                self.assertEqual(rows[0]["api_provider_count"], 2)
+
+    def test_model_names_are_not_excluded_when_api_becomes_available(self):
+        full = model("muse-wonder-full", 56, "meta", "max", hostModelCount=0)
+        wonder = model("muse-wonder", 52.393894697293, "meta", "max")
+        self.assertEqual(rating.select_models([full, wonder])[0]["slug"], "muse-wonder")
+        full["hostModelCount"] = 1
+        self.assertEqual(rating.select_models([full, wonder])[0]["slug"], "muse-wonder-full")
+
+    def test_missing_or_malformed_api_availability_fails(self):
+        for count in (None, True, False, -1, 1.0, "1"):
+            with self.subTest(count=count), self.assertRaisesRegex(ValueError, "hostModelCount"):
+                rating.select_models([model("unknown-api", 60, hostModelCount=count)])
+        missing = model("missing-api", 60)
+        del missing["hostModelCount"]
+        with self.assertRaisesRegex(ValueError, "hostModelCount"):
+            rating.select_models([missing])
 
 
 class SourceTests(unittest.TestCase):
@@ -95,6 +117,8 @@ class OutputTests(unittest.TestCase):
             metadata = json.loads((output / "metadata.json").read_text())
             self.assertEqual(metadata["fetched_at"], snapshot["fetched_at"])
             self.assertEqual(metadata["developers_shown"], 2)
+            self.assertTrue(metadata["public_api_required"])
+            self.assertEqual(metadata["restricted_effort"], {})
             self.assertGreaterEqual(metadata["layout"]["minimum_flag_value_gap_points"], 6)
             self.assertIn("41.123456", (output / "rating.csv").read_text(encoding="utf-8-sig"))
             self.assertIn("https://t.me/warlocksu", (output / "rating.svg").read_text(encoding="utf-8"))

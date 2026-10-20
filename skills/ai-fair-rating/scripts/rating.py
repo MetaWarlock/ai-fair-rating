@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch Artificial Analysis and draw one measured flagship per developer."""
+"""Fetch Artificial Analysis and draw each developer's best measured API model."""
 
 import argparse
 import csv
@@ -19,7 +19,6 @@ from urllib.request import Request, urlopen
 SOURCE = "https://artificialanalysis.ai/models/comparisons"
 SKILL_DIR = Path(__file__).resolve().parents[1]
 FLAG_SOURCE = "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/"
-EXCLUDED_RELEASES = {"muse-wonder-full"}
 
 
 def download(url):
@@ -86,20 +85,23 @@ def select_models(models, min_score=35):
             continue
         if model.get("intelligenceIndexIsEstimated") is not False:
             continue
-        release = (model.get("release") or {}).get("slug") or model.get("slug")
-        if release in EXCLUDED_RELEASES:
+        hosts = model.get("hostModelCount")
+        if type(hosts) is not int or hosts < 0:
+            raise ValueError(
+                f"Missing or invalid API availability (hostModelCount) for {model.get('slug', '?')}. "
+                "Refresh the source snapshot; if the source schema changed, update the fetcher. "
+                "Do not infer API availability.")
+        if hosts == 0:
             continue
         creator = model.get("creator") or {}
         if not all(creator.get(key) for key in ("id", "slug", "name")):
             raise ValueError(f"Missing developer identity for model {model.get('slug', '?')}.")
         effort = (model.get("effort") or {}).get("slug")
-        if creator["slug"] in {"openai", "anthropic"} and effort != "xhigh":
-            continue
         candidate = {"company": creator["name"], "creator_id": creator["id"],
                      "company_slug": creator["slug"], "country": creator.get("country"),
                      "color": creator.get("color") or "#626a75", "model": model["name"],
                      "short_name": model.get("shortName") or model["name"],
-                     "score": score, "effort": effort, "slug": model["slug"],
+                     "score": score, "effort": effort, "api_provider_count": hosts, "slug": model["slug"],
                      "url": "https://artificialanalysis.ai/models/" + model["slug"]}
         previous = best.get(creator["id"])
         if previous is None or (-score, candidate["slug"]) < (-previous["score"], previous["slug"]):
@@ -174,7 +176,7 @@ def render_chart(rows, snapshot, output, min_score, telegram, website):
     fig.text(.062, .948, "Artificial Analysis Intelligence Index", fontproperties=bold, fontsize=22)
     fig.text(.062, .902, "Рейтинг лучших разработчиков AI по их лучшей модели",
              fontproperties=regular, fontsize=15, color="#414a56")
-    fig.text(.062, .862, f"OpenAI и Anthropic: xhigh · Meta: без Full · измеренные результаты ≥ {min_score:g}",
+    fig.text(.062, .862, f"Одна лучшая модель на компанию · доступна по API · измеренные результаты ≥ {min_score:g}",
              fontproperties=regular, fontsize=11.5, color="#515965")
     for y, url in ((.954, telegram), (.925, website)):
         fig.text(.985, y, url, ha="right", fontproperties=regular, fontsize=11,
@@ -236,7 +238,7 @@ def main(argv=None):
     rows = select_models(snapshot["models"], args.min_score)
     args.output.mkdir(parents=True, exist_ok=True)
     layout = render_chart(rows, snapshot, args.output, args.min_score, args.telegram, args.website)
-    fields = ["rank", "company", "country", "model", "score", "effort", "url"]
+    fields = ["rank", "company", "country", "model", "score", "effort", "api_provider_count", "url"]
     with (args.output / "rating.csv").open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fields, extrasaction="ignore", lineterminator="\n")
         writer.writeheader()
@@ -245,8 +247,8 @@ def main(argv=None):
     metadata = {key: snapshot[key] for key in ("source_url", "fetched_at", "index_version")}
     metadata.update({"catalog_entries": len(snapshot["models"]), "developers_shown": len(rows),
                      "minimum_score_inclusive": args.min_score, "estimated_scores_included": False,
-                     "restricted_effort": {"openai": "xhigh", "anthropic": "xhigh"},
-                     "excluded_releases": sorted(EXCLUDED_RELEASES),
+                     "public_api_required": True, "api_availability_field": "hostModelCount > 0",
+                     "restricted_effort": {},
                      "snapshot_sha256": hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
                      "layout": layout})
     (args.output / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
