@@ -12,6 +12,7 @@ Generate the current developer ranking from public Artificial Analysis data usin
 - Group by the source's `creator.id`, using its developer names and countries.
 - Include only finite numeric `intelligenceIndex` scores with `intelligenceIndexIsEstimated` explicitly false. Missing status is not a measured result.
 - For OpenAI and Anthropic, require `effort.slug == "xhigh"`. Do not fall back to max or another setting. Other developers have no effort restriction.
+- Exclude the `muse-wonder-full` release, including its effort variants: it is not offered through the public Meta Model API. Use the eligible Muse Wonder result for Meta. This is an availability rule, not a claim that Full is an ensemble or merely a harness mode.
 - Choose the highest exact eligible score per developer, then retain scores **at least 35** by default. Rank before rounding; display two decimals.
 - Keep companies bold, model names readable, and country flags above the values with a visible gap. Preserve the zero baseline.
 - Use the subtitle `Рейтинг лучших разработчиков AI по их лучшей модели`. Put `https://t.me/warlocksu` and `https://warlock.su` in the upper-right corner by default; CLI options allow replacement.

@@ -19,6 +19,7 @@ from urllib.request import Request, urlopen
 SOURCE = "https://artificialanalysis.ai/models/comparisons"
 SKILL_DIR = Path(__file__).resolve().parents[1]
 FLAG_SOURCE = "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/"
+EXCLUDED_RELEASES = {"muse-wonder-full"}
 
 
 def download(url):
@@ -84,6 +85,9 @@ def select_models(models, min_score=35):
         if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score):
             continue
         if model.get("intelligenceIndexIsEstimated") is not False:
+            continue
+        release = (model.get("release") or {}).get("slug") or model.get("slug")
+        if release in EXCLUDED_RELEASES:
             continue
         creator = model.get("creator") or {}
         if not all(creator.get(key) for key in ("id", "slug", "name")):
@@ -170,7 +174,7 @@ def render_chart(rows, snapshot, output, min_score, telegram, website):
     fig.text(.062, .948, "Artificial Analysis Intelligence Index", fontproperties=bold, fontsize=22)
     fig.text(.062, .902, "Рейтинг лучших разработчиков AI по их лучшей модели",
              fontproperties=regular, fontsize=15, color="#414a56")
-    fig.text(.062, .862, f"OpenAI и Anthropic: xhigh · остальные: лучший режим · измеренные результаты ≥ {min_score:g}",
+    fig.text(.062, .862, f"OpenAI и Anthropic: xhigh · Meta: без Full · измеренные результаты ≥ {min_score:g}",
              fontproperties=regular, fontsize=11.5, color="#515965")
     for y, url in ((.954, telegram), (.925, website)):
         fig.text(.985, y, url, ha="right", fontproperties=regular, fontsize=11,
@@ -242,6 +246,7 @@ def main(argv=None):
     metadata.update({"catalog_entries": len(snapshot["models"]), "developers_shown": len(rows),
                      "minimum_score_inclusive": args.min_score, "estimated_scores_included": False,
                      "restricted_effort": {"openai": "xhigh", "anthropic": "xhigh"},
+                     "excluded_releases": sorted(EXCLUDED_RELEASES),
                      "snapshot_sha256": hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
                      "layout": layout})
     (args.output / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -48,6 +48,15 @@ class SelectionTests(unittest.TestCase):
     def test_no_fallback_to_max(self):
         self.assertEqual(rating.select_models([model("only-max", 90, "openai", "max")]), [])
 
+    def test_meta_uses_wonder_instead_of_full_or_its_effort_variants(self):
+        rows = rating.select_models([
+            model("muse-wonder-full", 56, "meta", "max"),
+            model("muse-wonder-full-xhigh", 55, "meta", "xhigh", release={"slug": "muse-wonder-full"}),
+            model("muse-wonder", 52.393894697293, "meta", "max"),
+            model("muse-spark-1-3", 48, "meta", "max"),
+        ])
+        self.assertEqual([row["slug"] for row in rows], ["muse-wonder"])
+
 
 class SourceTests(unittest.TestCase):
     def test_public_payload_decoding(self):

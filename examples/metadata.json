@@ -10,6 +10,9 @@
     "openai": "xhigh",
     "anthropic": "xhigh"
   },
+  "excluded_releases": [
+    "muse-wonder-full"
+  ],
   "snapshot_sha256": "845b94db40a59642e200de1666025cab3faf1164419e5b7c5f110b6cfa2aa0bc",
   "layout": {
     "minimum_flag_value_gap_points": 7.0
