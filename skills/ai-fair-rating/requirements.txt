@@ -1,0 +1,3 @@
+cryptography>=43,<49
+matplotlib>=3.9,<4
+Pillow>=10,<13

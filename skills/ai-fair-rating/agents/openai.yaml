@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Fair Rating"
+  short_description: "One measured flagship per AI developer"
+  default_prompt: "Use $ai-fair-rating to build the latest AI developer ranking."
