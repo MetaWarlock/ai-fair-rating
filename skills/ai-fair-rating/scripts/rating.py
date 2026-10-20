@@ -101,6 +101,9 @@ def select_models(models, min_score=35):
         if not all(creator.get(key) for key in ("id", "slug", "name")):
             raise ValueError(f"Missing developer identity for model {model.get('slug', '?')}.")
         effort = (model.get("effort") or {}).get("slug")
+        if type(model.get("isOpenWeights")) is not bool:
+            raise ValueError(f"Missing or invalid isOpenWeights for {model.get('slug', '?')}. "
+                             "Refresh the snapshot or update the source parser; do not infer weight availability.")
         modalities = []
         for kind, field, _ in INPUT_MODALITIES:
             if type(model.get(field)) is not bool:
@@ -114,6 +117,7 @@ def select_models(models, min_score=35):
                      "short_name": model.get("shortName") or model["name"],
                      "score": score, "effort": effort, "api_provider_count": hosts, "slug": model["slug"],
                      "input_modalities": modalities,
+                     "open_weights": model["isOpenWeights"],
                      "url": "https://artificialanalysis.ai/models/" + model["slug"]}
         previous = best.get(creator["id"])
         if previous is None or (-score, candidate["slug"]) < (-previous["score"], previous["slug"]):
@@ -189,6 +193,7 @@ def render_chart(rows, snapshot, output, min_score, telegram, website):
     from matplotlib.colors import is_color_like
     from matplotlib.font_manager import FontProperties
     from matplotlib.offsetbox import AnnotationBbox, OffsetImage
+    from matplotlib.patches import Rectangle
     from matplotlib.transforms import ScaledTranslation
     from PIL import Image
 
@@ -198,12 +203,18 @@ def render_chart(rows, snapshot, output, min_score, telegram, website):
     regular = FontProperties(fname=str(font_dir / "DejaVuSans.ttf"))
     bold = FontProperties(fname=str(font_dir / "DejaVuSans-Bold.ttf"))
     plt.rcParams.update({"font.family": "DejaVu Sans", "svg.fonttype": "none",
-                         "mathtext.fontset": "dejavusans", "savefig.facecolor": "white"})
+                         "mathtext.fontset": "dejavusans", "savefig.facecolor": "white",
+                         "hatch.linewidth": .6})
     width = max(14.5, 3 + len(rows) * .98)
     fig, ax = plt.subplots(figsize=(width, 9.4), dpi=180)
     fig.subplots_adjust(left=.062, right=.985, bottom=.32, top=.78)
     colors = [m["color"] if is_color_like(m["color"]) else "#626a75" for m in rows]
     bars = ax.bar(range(len(rows)), [m["score"] for m in rows], width=.70, color=colors, zorder=3)
+    for bar, row in zip(bars, rows):
+        if row["open_weights"]:
+            bar.set_hatch("///")
+            bar.set_edgecolor((1, 1, 1, .65))
+            bar.set_linewidth(0)
     values = []
     for bar, row in zip(bars, rows):
         center = bar.get_x() + bar.get_width() / 2
@@ -238,6 +249,10 @@ def render_chart(rows, snapshot, output, min_score, telegram, website):
                                       frameon=False, pad=0))
         fig.text(x, .811, label, transform=fig.transFigure + ScaledTranslation(18 / 72, 0, fig.dpi_scale_trans),
                  fontproperties=regular, fontsize=10.5, va="center", color="#515965")
+    fig.add_artist(Rectangle((.48, .801), .022, .020, transform=fig.transFigure,
+                             facecolor="#697586", edgecolor=(1, 1, 1, .65), linewidth=0, hatch="///"))
+    fig.text(.512, .811, "Открытые веса", fontproperties=regular, fontsize=10.5,
+             va="center", color="#515965")
     data_date = datetime.fromisoformat(snapshot["fetched_at"]).strftime("%d.%m.%Y")
     fig.text(.062, .064, f"{len(rows)} разработчиков · индекс v{snapshot['index_version']} · данные AA: {data_date} (UTC)",
              fontproperties=regular, fontsize=11, color="#515965")
@@ -293,6 +308,7 @@ def render_chart(rows, snapshot, output, min_score, telegram, website):
             target.write_text(clean, encoding="utf-8", newline="\n")
     plt.close(fig)
     return {"minimum_flag_value_gap_points": round(min(gaps), 2),
+            "open_weight_bars_hatched": sum(row["open_weights"] for row in rows),
             "input_icons_shown": len(input_icons),
             "minimum_input_icon_bar_clearance_points": round(min(clearances), 2) if clearances else None}
 
@@ -314,7 +330,8 @@ def main(argv=None):
     rows = select_models(snapshot["models"], args.min_score)
     args.output.mkdir(parents=True, exist_ok=True)
     layout = render_chart(rows, snapshot, args.output, args.min_score, args.telegram, args.website)
-    fields = ["rank", "company", "country", "model", "score", "effort", "api_provider_count", "input_modalities", "url"]
+    fields = ["rank", "company", "country", "model", "score", "effort", "api_provider_count",
+              "input_modalities", "open_weights", "url"]
     with (args.output / "rating.csv").open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fields, extrasaction="ignore", lineterminator="\n")
         writer.writeheader()

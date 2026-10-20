@@ -16,6 +16,7 @@ def model(slug, score, creator="example", effort=None, estimated=False, **extra)
     return {"slug": slug, "name": slug, "shortName": slug, "intelligenceIndex": score,
             "intelligenceIndexIsEstimated": estimated,
             "hostModelCount": 1,
+            "isOpenWeights": False,
             "inputModalityText": True, "inputModalityImage": False,
             "inputModalitySpeech": False, "inputModalityVideo": False,
             "creator": {"id": creator, "slug": creator, "name": creator, "country": "us", "color": "#123456"},
@@ -84,10 +85,17 @@ class SelectionTests(unittest.TestCase):
     def test_input_modalities_belong_to_selected_model(self):
         rows = rating.select_models([
             model("winner", 50, inputModalityImage=True, inputModalitySpeech=True, inputModalityVideo=True),
-            model("older", 40), model("text-only", 39, "another"),
+            model("older", 40, isOpenWeights=True), model("text-only", 39, "another", isOpenWeights=True),
         ])
         self.assertEqual(rows[0]["input_modalities"], ["text", "image", "audio", "video"])
         self.assertEqual(rows[1]["input_modalities"], ["text"])
+        self.assertFalse(rows[0]["open_weights"])
+        self.assertTrue(rows[1]["open_weights"])
+
+    def test_missing_or_malformed_open_weight_status_fails(self):
+        for invalid in (None, 0, 1, "true"):
+            with self.subTest(value=invalid), self.assertRaisesRegex(ValueError, "isOpenWeights"):
+                rating.select_models([model("unknown-weights", 40, isOpenWeights=invalid)])
 
     def test_missing_or_malformed_input_modalities_fail(self):
         for _, field, _ in rating.INPUT_MODALITIES:
@@ -124,7 +132,7 @@ class OutputTests(unittest.TestCase):
 
         snapshot = {"source_url": rating.SOURCE, "fetched_at": "2026-10-15T20:00:00+00:00",
                     "index_version": "4.3.2", "models": [model("first", 41.123456, inputModalityImage=True,
-                    inputModalitySpeech=True, inputModalityVideo=True), model("second", 35, "second")]}
+                    inputModalitySpeech=True, inputModalityVideo=True), model("second", 35, "second", isOpenWeights=True)]}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "source.json"
@@ -138,10 +146,12 @@ class OutputTests(unittest.TestCase):
             self.assertEqual(metadata["restricted_effort"], {})
             self.assertGreaterEqual(metadata["layout"]["minimum_flag_value_gap_points"], 6)
             self.assertEqual(metadata["layout"]["input_icons_shown"], 5)
+            self.assertEqual(metadata["layout"]["open_weight_bars_hatched"], 1)
             self.assertGreaterEqual(metadata["layout"]["minimum_input_icon_bar_clearance_points"], 0)
             self.assertIn("41.123456", (output / "rating.csv").read_text(encoding="utf-8-sig"))
             self.assertIn("text;image;audio;video", (output / "rating.csv").read_text(encoding="utf-8-sig"))
             self.assertIn("https://t.me/warlocksu", (output / "rating.svg").read_text(encoding="utf-8"))
+            self.assertIn("<pattern", (output / "rating.svg").read_text(encoding="utf-8"))
             with Image.open(output / "rating.png") as image:
                 self.assertGreater(image.width, 2000)
                 image.verify()
