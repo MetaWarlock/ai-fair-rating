@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import sys
 import textwrap
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
@@ -134,6 +135,45 @@ def decode_catalog(payload, key_hex):
     return json.loads(gzip.decompress(AESGCM(key).decrypt(iv, payload, None)))
 
 
+def parse_unavailable_api_ids(script):
+    """Read the public client's checkered-pattern list, without executing JavaScript."""
+    identifier = r"[A-Za-z_$][\w$]*"
+    pattern = (r"new Set\((\[[^\]]*\])\)," + identifier + r'="checkered",' + identifier +
+               r"=\{\[" + identifier + r"\]:" + identifier + r"\.I\.notPubliclyAvailable\}")
+    matches = re.findall(pattern, script)
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise ValueError("Ambiguous No publicly available API marker lists; update the source parser.")
+    ids = json.loads(matches[0])
+    if not isinstance(ids, list) or any(not isinstance(item, str) or not re.fullmatch(
+            r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", item) for item in ids) or len(set(ids)) != len(ids):
+        raise ValueError("Invalid No publicly available API model IDs; update the source parser.")
+    return ids
+
+
+def fetch_api_markers(page):
+    scripts = list(dict.fromkeys(urljoin(SOURCE, path) for path in re.findall(
+        r'<script[^>]+src="([^"]+\.js[^"]*)"', page)))
+    scripts = [url for url in scripts if url.startswith("https://artificialanalysis.ai/_next/static/")]
+
+    def inspect(url):
+        script = download(url).decode("utf-8")
+        ids = parse_unavailable_api_ids(script)
+        if ids is not None:
+            return {"label": "No publicly available API", "source_url": url,
+                    "source_sha256": hashlib.sha256(script.encode("utf-8")).hexdigest(),
+                    "unavailable_model_ids": ids}
+        return None
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        matches = [result for result in pool.map(inspect, scripts) if result is not None]
+    if len(matches) != 1:
+        raise ValueError("No unique No publicly available API marker catalog found in the public client. "
+                         "Update the source parser; do not rely on hostModelCount alone.")
+    return matches[0]
+
+
 def fetch_snapshot():
     page = download(SOURCE).decode("utf-8")
     manifests, version, declared_count = parse_page(page)
@@ -149,8 +189,14 @@ def fetch_snapshot():
         raise ValueError(f"Incomplete catalog: received {len(models)}, page declares {declared_count}.")
     if version is None:
         raise ValueError("Intelligence Index version not found; check the source page format.")
+    markers = fetch_api_markers(page)
+    unavailable = set(markers["unavailable_model_ids"])
+    for model in models:
+        if not isinstance(model.get("id"), str) or not model["id"]:
+            raise ValueError("Missing model ID for public API marker matching; update the source parser.")
+        model["aa_public_api_unavailable"] = model["id"] in unavailable
     return {"source_url": SOURCE, "fetched_at": datetime.now(timezone.utc).isoformat(),
-            "index_version": version, "models": models}
+            "index_version": version, "models": models, "public_api_markers": markers}
 
 
 def finite_number(value):
@@ -162,7 +208,11 @@ def model_details(model):
     if type(hosts) is not int or hosts < 0:
         raise ValueError(f"Missing or invalid API availability (hostModelCount) for {model.get('slug', '?')}. "
                          "Refresh the source snapshot or update the fetcher; do not infer API availability.")
-    if hosts == 0:
+    if type(model.get("aa_public_api_unavailable")) is not bool:
+        raise ValueError(f"Missing or invalid AA public API marker for {model.get('slug', '?')}. "
+                         "Fetch a fresh model snapshot including No publicly available API markers; "
+                         "do not rely on hostModelCount alone.")
+    if model["aa_public_api_unavailable"] or hosts == 0:
         return None
     creator = model.get("creator") or {}
     if not all(creator.get(key) for key in ("id", "slug", "name")):
@@ -525,12 +575,16 @@ def write_result(rows, snapshot, output, args, coding=False, model_snapshot=None
                      "minimum_score_inclusive": reference["score"] if reference else None,
                      "score_filter": "at_least_reference_model" if reference else "none",
                      "estimated_scores_included": False,
-                     "public_api_required": True, "api_availability_field": "hostModelCount > 0",
+                     "public_api_required": True,
+                     "api_availability_field": "hostModelCount > 0 and aa_public_api_unavailable is False",
                      "restricted_effort": {},
                      "snapshot_sha256": hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
                      "layout": layout})
     if reference:
         metadata["reference_model"] = reference
+    catalog = model_snapshot if coding else snapshot
+    if "public_api_markers" in catalog:
+        metadata["public_api_markers"] = catalog["public_api_markers"]
     if coding:
         metadata.update({"grouped_by": "model_creator.id", "routers_included": False,
                          "score_scale": "indexScore * 100", "required_components": 3,

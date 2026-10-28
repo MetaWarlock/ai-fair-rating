@@ -1,7 +1,7 @@
 ﻿rank,company,country,model,score,effort,api_provider_count,input_modalities,open_weights,url
-1,Google,us,Gemini 4 Carbon (High),59.425738829526,high,1,text;image;audio;video,False,https://artificialanalysis.ai/models/gemini-4-carbon
-2,Anthropic,us,"Claude Opus 5.5 (Max, Default Fallback)",58.4060336078904,max,9,text;image,False,https://artificialanalysis.ai/models/claude-opus-5-5
-3,OpenAI,us,GPT-6 Astra (Max),56.8538559596797,max,11,text;image,False,https://artificialanalysis.ai/models/gpt-6-astra
+1,Anthropic,us,"Claude Opus 5.5 (Max, Default Fallback)",58.4060336078904,max,9,text;image,False,https://artificialanalysis.ai/models/claude-opus-5-5
+2,OpenAI,us,GPT-6 Astra (Max),56.8538559596797,max,11,text;image,False,https://artificialanalysis.ai/models/gpt-6-astra
+3,Google,us,Gemini 4 Argon (High),50.4121935905389,high,4,text;image,False,https://artificialanalysis.ai/models/gemini-4-argon
 4,Kimi,cn,Kimi K3.1 Pro,46.0026236744189,,5,text;image,False,https://artificialanalysis.ai/models/kimi-k3-1-pro
 5,Meta,us,Muse Wonder (Max),43.3248225998431,max,2,text;image;audio;video,False,https://artificialanalysis.ai/models/muse-wonder
 6,SpaceXAI,us,Grok 4.7 (High),35.0122962959703,high,1,text;image,False,https://artificialanalysis.ai/models/grok-4-7-high
@@ -10,6 +10,6 @@
 9,Z AI,cn,GLM-5.3 (Max),31.653381843882,max,27,text,True,https://artificialanalysis.ai/models/glm-5-3
 10,Xiaomi,cn,MiMo-V2.6-Pro,29.8897833093321,,4,text;image;audio;video,True,https://artificialanalysis.ai/models/mimo-v2-6-pro
 11,InclusionAI,cn,Ling 3.1 Flash 1019,29.470119369837,,1,text,True,https://artificialanalysis.ai/models/ling-3-1-flash-1019
-12,MiniMax,cn,MiniMax-M3.1-Flash,28.9095214290458,,15,text;image,False,https://artificialanalysis.ai/models/minimax-m3-1-flash
+12,MiniMax,cn,MiniMax-M3.1-Flash,28.9095214290458,,15,text;image,True,https://artificialanalysis.ai/models/minimax-m3-1-flash
 13,StepFun,cn,Step 5 Preview,28.5283090216016,,1,text;image,True,https://artificialanalysis.ai/models/step-5
 14,Mistral,fr,Mistral Large 4 Preview,25.286451488165,,2,text;image,False,https://artificialanalysis.ai/models/mistral-large-4

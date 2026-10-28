@@ -1,6 +1,6 @@
 {
   "source_url": "https://artificialanalysis.ai/models/comparisons",
-  "fetched_at": "2026-10-28T21:13:16.039708+00:00",
+  "fetched_at": "2026-10-28T21:54:02.065872+00:00",
   "index_version": "5.0",
   "catalog_entries": 716,
   "developers_shown": 14,
@@ -8,14 +8,14 @@
   "score_filter": "at_least_reference_model",
   "estimated_scores_included": false,
   "public_api_required": true,
-  "api_availability_field": "hostModelCount > 0",
+  "api_availability_field": "hostModelCount > 0 and aa_public_api_unavailable is False",
   "restricted_effort": {},
-  "snapshot_sha256": "d9d8ff3a2aa7c8bd555b526417b3c221e1da32fccdb2e2625db295c3fc654ed3",
+  "snapshot_sha256": "9240a7b14d8a9a39147b62083614d0caa859276ab2d2faba14321f45c7edf911",
   "layout": {
     "minimum_flag_value_gap_points": 7.0,
     "minimum_label_footer_gap_points": 18.1,
-    "open_weight_bars_hatched": 5,
-    "input_icons_shown": 32,
+    "open_weight_bars_hatched": 6,
+    "input_icons_shown": 30,
     "input_icons_above_short_bars": 0,
     "minimum_input_icon_bar_clearance_points": 3.0
   },
@@ -26,5 +26,19 @@
     "effort": "xhigh",
     "url": "https://artificialanalysis.ai/models/qwen3-8-27b",
     "release_slug": "qwen3-8-27b"
+  },
+  "public_api_markers": {
+    "label": "No publicly available API",
+    "source_url": "https://artificialanalysis.ai/_next/static/chunks/43206-f4c96c37c40ec3b7.js",
+    "source_sha256": "416e23b07c5ab83e24154a0cd633053a7f4a74f1b22b7594eedcdc9e97504a01",
+    "unavailable_model_ids": [
+      "e994a6e0-d36b-4dab-8ae1-c1b469e4d9e2",
+      "909ed0ba-bcc5-4f38-8162-08a4e187a772",
+      "c23d5fdc-52b0-42a7-af0c-449089896e22",
+      "0d3eaafd-54ed-4f78-bdd7-05a2db883986",
+      "c0042626-a2a4-4e44-a4b2-3ad68d280515",
+      "b3866703-a9f7-4ea2-8f3f-b361c90aaf0e",
+      "56d67321-848e-4eda-a1fc-9ec357b18286"
+    ]
   }
 }

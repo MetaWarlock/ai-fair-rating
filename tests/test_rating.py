@@ -17,6 +17,7 @@ def model(slug, score, creator="example", effort=None, estimated=False, **extra)
     return {"slug": slug, "name": slug, "shortName": slug, "intelligenceIndex": score,
             "intelligenceIndexIsEstimated": estimated,
             "hostModelCount": 1,
+            "aa_public_api_unavailable": False,
             "isOpenWeights": False,
             "inputModalityText": True, "inputModalityImage": False,
             "inputModalitySpeech": False, "inputModalityVideo": False,
@@ -98,12 +99,30 @@ class SelectionTests(unittest.TestCase):
             with self.subTest(creator=creator):
                 rows = rating.select_models([
                     model("offline-best", 90, creator, "max", hostModelCount=0),
+                    model("marked-unavailable", 91, creator, "max", hostModelCount=9, aa_public_api_unavailable=True),
                     model("online-estimate", 95, creator, "max", estimated=True),
                     model("online-best", 52, creator, "max", hostModelCount=2),
                     model("online-older", 48, creator, "xhigh"),
                 ], min_score=35)
                 self.assertEqual([row["slug"] for row in rows], ["online-best"])
                 self.assertEqual(rows[0]["api_provider_count"], 2)
+
+    def test_missing_or_malformed_api_marker_is_not_treated_as_available(self):
+        for marker in (None, 0, 1, "false"):
+            with self.subTest(marker=marker), self.assertRaisesRegex(ValueError, "AA public API marker"):
+                rating.select_models([model("unknown", 60, aa_public_api_unavailable=marker)], min_score=35)
+        old_snapshot_model = model("old", 60)
+        del old_snapshot_model["aa_public_api_unavailable"]
+        with self.assertRaisesRegex(ValueError, "fresh model snapshot"):
+            rating.select_models([old_snapshot_model], min_score=35)
+
+    def test_reference_also_excludes_explicit_no_api_marker(self):
+        release = {"slug": rating.REFERENCE_RELEASE}
+        reference = model("reference", 20, release=release)
+        marked = model("marked-reference", 50, release=release, hostModelCount=3, aa_public_api_unavailable=True)
+        self.assertEqual(rating.reference_model([marked, reference])["score"], 20)
+        with self.assertRaisesRegex(ValueError, "reference release"):
+            rating.reference_model([marked])
 
     def test_model_names_are_not_excluded_when_api_becomes_available(self):
         full = model("muse-wonder-full", 56, "meta", "max", hostModelCount=0)
@@ -144,6 +163,34 @@ class SelectionTests(unittest.TestCase):
 
 
 class SourceTests(unittest.TestCase):
+    def test_explicit_api_marker_parser_and_fetch_enrichment(self):
+        identifier = "909ed0ba-bcc5-4f38-8162-08a4e187a772"
+        script = ('let unrelated=new Set(["not-an-api-id"]);'
+                  'let s=new Set(["' + identifier + '"]),p="checkered",l={[p]:t.I.notPubliclyAvailable};')
+        self.assertEqual(rating.parse_unavailable_api_ids(script), [identifier])
+        self.assertIsNone(rating.parse_unavailable_api_ids('let unrelated=new Set(["anything"]);'))
+        self.assertEqual(rating.parse_unavailable_api_ids(script.replace('"' + identifier + '"', '')), [])
+        with self.assertRaisesRegex(ValueError, "Invalid"):
+            rating.parse_unavailable_api_ids(script.replace(identifier, "bad-id"))
+        with self.assertRaisesRegex(ValueError, "Ambiguous"):
+            rating.parse_unavailable_api_ids(script + script)
+
+        manifest = {"path": "/data/catalog.txt", "key": "ab" * 32}
+        page = ('Intelligence Index v5.0 2 of 2 models<script src="/_next/static/chunks/availability.js"></script>'
+                '<script>self.__next_f.push(' + json.dumps([1, json.dumps({"manifest": manifest})]) + ')</script>')
+        models = [model("unavailable", 60, id=identifier, hostModelCount=1), model("available", 40, id="other-id")]
+        payloads = {rating.SOURCE: page.encode(), "https://artificialanalysis.ai/data/catalog.txt": b"encrypted",
+                    "https://artificialanalysis.ai/_next/static/chunks/availability.js": script.encode()}
+        with patch.object(rating, "download", side_effect=lambda url: payloads[url]), patch.object(
+                rating, "decode_catalog", return_value={"models": models}):
+            snapshot = rating.fetch_snapshot()
+        self.assertTrue(snapshot["models"][0]["aa_public_api_unavailable"])
+        self.assertFalse(snapshot["models"][1]["aa_public_api_unavailable"])
+        self.assertEqual(snapshot["public_api_markers"]["unavailable_model_ids"], [identifier])
+        self.assertEqual([r["slug"] for r in rating.select_models(snapshot["models"], min_score=35)], ["available"])
+        with patch.object(rating, "download", return_value=b"client schema changed"), self.assertRaisesRegex(ValueError, "marker catalog"):
+            rating.fetch_api_markers(page)
+
     def test_agent_full_catalog_references_not_highlights(self):
         first = agent("one", "first", .5)
         second = agent("two", "second", .4)
@@ -180,6 +227,12 @@ class SourceTests(unittest.TestCase):
 
 
 class AgentSelectionTests(unittest.TestCase):
+    def test_no_api_marker_wins_over_provider_count_in_coding_results(self):
+        models = [model("best", None, hostModelCount=1, aa_public_api_unavailable=True), model("available", None)]
+        rows, excluded = rating.select_agents([agent("best", "best", .9), agent("available", "available", .4)], models)
+        self.assertEqual([r["slug"] for r in rows], ["available"])
+        self.assertEqual(excluded[0]["reason"], "no_public_api")
+
     def test_measured_api_best_by_model_developer_without_score_threshold(self):
         models = [model("first", None, estimated=True), model("second", None),
                   model("offline", None, hostModelCount=0), model("threshold", None, "another"),
