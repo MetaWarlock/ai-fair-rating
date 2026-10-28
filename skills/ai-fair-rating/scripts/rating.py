@@ -19,6 +19,7 @@ from urllib.request import Request, urlopen
 SOURCE = "https://artificialanalysis.ai/models/comparisons"
 AGENT_SOURCE = "https://artificialanalysis.ai/agents/coding-agents"
 AGENT_COMPONENTS = {"frontiercode-v1.1-main", "swe-atlas-qna", "terminal-bench-v4"}
+REFERENCE_RELEASE = "qwen3-8-27b"
 SKILL_DIR = Path(__file__).resolve().parents[1]
 FLAG_SOURCE = "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/"
 INPUT_MODALITIES = (("text", "inputModalityText", "Текст"),
@@ -185,21 +186,42 @@ def model_details(model):
             "url": "https://artificialanalysis.ai/models/" + model["slug"]}
 
 
-def best_per_developer(candidates, min_score):
+def best_per_developer(candidates, min_score=None):
     best = {}
     for candidate in candidates:
         previous = best.get(candidate["creator_id"])
         if previous is None or (-candidate["score"], candidate["slug"], candidate.get("agent_id", "")) < (
                 -previous["score"], previous["slug"], previous.get("agent_id", "")):
             best[candidate["creator_id"]] = candidate
-    rows = sorted((m for m in best.values() if m["score"] >= min_score),
+    rows = sorted((m for m in best.values() if min_score is None or m["score"] >= min_score),
                   key=lambda m: (-m["score"], m["company"], m["slug"]))
     for rank, row in enumerate(rows, 1):
         row["rank"] = rank
     return rows
 
 
-def select_models(models, min_score=35):
+def reference_model(models):
+    """Use the best measured API setting of the named reference release."""
+    eligible = []
+    for model in models:
+        if (model.get("release") or {}).get("slug") != REFERENCE_RELEASE:
+            continue
+        score = model.get("intelligenceIndex")
+        if not finite_number(score) or model.get("intelligenceIndexIsEstimated") is not False:
+            continue
+        details = model_details(model)
+        if details:
+            eligible.append({"slug": model["slug"], "name": model["name"], "score": score,
+                             "effort": details["effort"], "url": details["url"], "release_slug": REFERENCE_RELEASE})
+    if not eligible:
+        raise ValueError(f"No measured API result for reference release {REFERENCE_RELEASE}. "
+                         "Refresh the model catalog or check the source; do not substitute a fixed threshold.")
+    return min(eligible, key=lambda m: (-m["score"], m["slug"]))
+
+
+def select_models(models, min_score=None):
+    if min_score is None:
+        min_score = reference_model(models)["score"]
     candidates = []
     for model in models:
         score = model.get("intelligenceIndex")
@@ -215,7 +237,7 @@ def model_name_key(name):
     return name.casefold().strip()
 
 
-def select_agents(agents, models, min_score=35):
+def select_agents(agents, models):
     names = {}
     for model in models:
         for name in {model.get("name"), model.get("shortName")} - {None}:
@@ -252,8 +274,6 @@ def select_agents(agents, models, min_score=35):
                 raise ValueError("Coding Agent benchmark components changed; update the parser and methodology.")
             elif not math.isclose(score, sum(e["mean"]["reward"] for e in evals) / 3, abs_tol=1e-10):
                 raise ValueError("Coding Agent index disagrees with measured components; check index methodology.")
-        if not reason and score * 100 < min_score:
-            reason = "below_threshold"
         if reason:
             excluded.append({"id": agent.get("id"), "label": agent.get("displayLabel"), "reason": reason})
             continue
@@ -276,7 +296,7 @@ def select_agents(agents, models, min_score=35):
             raise ValueError(f"Missing agent name for {agent['id']}.")
         candidates.append({**candidate, "score": score * 100, "agent_id": agent["id"], "agent": agent_name,
                            "agent_model_label": label, "agent_url": AGENT_SOURCE + "#coding-agents-index"})
-    return best_per_developer(candidates, min_score), excluded
+    return best_per_developer(candidates), excluded
 
 
 def flag_path(country, output):
@@ -336,7 +356,7 @@ def input_icon(kind):
     return icon
 
 
-def render_chart(rows, snapshot, output, min_score, telegram, website, coding=False):
+def render_chart(rows, snapshot, output, reference, telegram, website, coding=False):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -348,7 +368,7 @@ def render_chart(rows, snapshot, output, min_score, telegram, website, coding=Fa
     from PIL import Image
 
     if not rows:
-        raise ValueError(f"No measured eligible developer scores at least {min_score:g}.")
+        raise ValueError("No eligible measured developer scores; existing output preserved.")
     font_dir = Path(matplotlib.get_data_path()) / "fonts" / "ttf"
     regular = FontProperties(fname=str(font_dir / "DejaVuSans.ttf"))
     bold = FontProperties(fname=str(font_dir / "DejaVuSans-Bold.ttf"))
@@ -357,7 +377,7 @@ def render_chart(rows, snapshot, output, min_score, telegram, website, coding=Fa
                          "hatch.linewidth": .6})
     width = max(14.5, 3 + len(rows) * .98)
     fig, ax = plt.subplots(figsize=(width, 9.4), dpi=180)
-    fig.subplots_adjust(left=.062, right=.985, bottom=.355 if coding else .32, top=.78)
+    fig.subplots_adjust(left=.062, right=.985, bottom=.36, top=.78)
     colors = [m["color"] if is_color_like(m["color"]) else "#626a75" for m in rows]
     bars = ax.bar(range(len(rows)), [m["score"] for m in rows], width=.70, color=colors, zorder=3)
     for bar, row in zip(bars, rows):
@@ -377,7 +397,7 @@ def render_chart(rows, snapshot, output, min_score, telegram, website, coding=Fa
     ax.set_xticks(range(len(rows)), labels, rotation=58, ha="right", rotation_mode="anchor", fontsize=12)
     ax.tick_params(axis="x", length=0, pad=14)
     ax.tick_params(axis="y", length=0, pad=9, labelsize=12)
-    ax.set_ylim(0, max(m["score"] for m in rows) * 1.24)
+    ax.set_ylim(0, max(1, max(m["score"] for m in rows)) * 1.24)
     ax.set_xlim(-.65, len(rows) - .35)
     ax.set_axisbelow(True)
     ax.grid(axis="y", color="#d7dce2", linestyle=(0, (2, 4)), linewidth=.8)
@@ -389,8 +409,9 @@ def render_chart(rows, snapshot, output, min_score, telegram, website, coding=Fa
     fig.text(.062, .902, "Рейтинг разработчиков AI по лучшей модели в coding-агенте" if coding else
              "Рейтинг лучших разработчиков AI по их лучшей модели",
              fontproperties=regular, fontsize=15, color="#414a56")
-    rule = "Одна конфигурация на разработчика модели · без роутеров · API" if coding else "Одна лучшая модель на компанию · доступна по API"
-    fig.text(.062, .862, f"{rule} · измеренные результаты ≥ {min_score:g}",
+    rule = ("Одна конфигурация на разработчика модели · без роутеров · API · без порога по баллам" if coding else
+            f"Одна лучшая модель на компанию · API · результат ≥ {reference['name']} ({reference['score']:.2f})")
+    fig.text(.062, .862, rule,
              fontproperties=regular, fontsize=11.5, color="#515965")
     for y, url in ((.954, telegram), (.925, website)):
         fig.text(.985, y, url, ha="right", fontproperties=regular, fontsize=11,
@@ -420,14 +441,22 @@ def render_chart(rows, snapshot, output, min_score, telegram, website, coding=Fa
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
     input_icons = []
-    for bar, row in zip(bars, rows):
+    for bar, row, value in zip(bars, rows, values):
         center = bar.get_x() + bar.get_width() / 2
+        count = len(row["input_modalities"])
+        height_points = bar.get_window_extent(renderer).height * 72 / fig.dpi
+        step = min(29, (height_points - 36) / (count - 1)) if count > 1 else 29
+        inside = height_points >= 36 and step >= 24
+        if not inside and count:
+            step = 29
+            value.set_position((0, count * step + 11))
+        anchor = (center, 0 if inside else row["score"])
         for index, kind in enumerate(row["input_modalities"]):
-            icon_box = AnnotationBbox(input_icon(kind), (center, 0), xybox=(0, 9 + index * 29),
+            icon_box = AnnotationBbox(input_icon(kind), anchor, xybox=(0, 9 + index * step),
                                        boxcoords="offset points", box_alignment=(.5, 0),
                                        frameon=False, pad=0, zorder=4)
             ax.add_artist(icon_box)
-            input_icons.append((bar, icon_box))
+            input_icons.append((bar, icon_box, inside, value))
     flags = []
     for row, value in zip(rows, values):
         bbox = value.get_window_extent(renderer)
@@ -453,10 +482,14 @@ def render_chart(rows, snapshot, output, min_score, telegram, website, coding=Fa
         plt.close(fig)
         raise ValueError("Layout check failed: country flags are too close to score labels.")
     clearances = []
-    for bar, icon in input_icons:
+    for bar, icon, inside, value in input_icons:
         bounds, badge = bar.get_window_extent(renderer), icon.get_window_extent(renderer)
-        clearances.append(min(badge.x0 - bounds.x0, bounds.x1 - badge.x1,
-                              badge.y0 - bounds.y0, bounds.y1 - badge.y1) * 72 / fig.dpi)
+        if inside:
+            clearances.append(min(badge.x0 - bounds.x0, bounds.x1 - badge.x1,
+                                  badge.y0 - bounds.y0, bounds.y1 - badge.y1) * 72 / fig.dpi)
+        elif badge.y1 > value.get_window_extent(renderer).y0:
+            plt.close(fig)
+            raise ValueError("Layout check failed: short-bar input icons overlap the score.")
     if clearances and min(clearances) < 0:
         plt.close(fig)
         raise ValueError("Layout check failed: input icons do not fit inside the bars.")
@@ -471,12 +504,13 @@ def render_chart(rows, snapshot, output, min_score, telegram, website, coding=Fa
             "minimum_label_footer_gap_points": round(label_gap, 2),
             "open_weight_bars_hatched": sum(row["open_weights"] for row in rows),
             "input_icons_shown": len(input_icons),
+            "input_icons_above_short_bars": sum(not inside for _, _, inside, _ in input_icons),
             "minimum_input_icon_bar_clearance_points": round(min(clearances), 2) if clearances else None}
 
 
-def write_result(rows, snapshot, output, args, coding=False, model_snapshot=None, excluded=None):
+def write_result(rows, snapshot, output, args, coding=False, model_snapshot=None, excluded=None, reference=None):
     output.mkdir(parents=True, exist_ok=True)
-    layout = render_chart(rows, snapshot, output, args.min_score, args.telegram, args.website, coding=coding)
+    layout = render_chart(rows, snapshot, output, reference, args.telegram, args.website, coding=coding)
     fields = ["rank", "company", "country", "model", "score", "effort", "api_provider_count",
               "input_modalities", "open_weights", "url"]
     if coding:
@@ -488,11 +522,15 @@ def write_result(rows, snapshot, output, args, coding=False, model_snapshot=None
     (output / "snapshot.json").write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
     metadata = {key: snapshot[key] for key in ("source_url", "fetched_at", "index_version")}
     metadata.update({"catalog_entries": len(snapshot["agents" if coding else "models"]), "developers_shown": len(rows),
-                     "minimum_score_inclusive": args.min_score, "estimated_scores_included": False,
+                     "minimum_score_inclusive": reference["score"] if reference else None,
+                     "score_filter": "at_least_reference_model" if reference else "none",
+                     "estimated_scores_included": False,
                      "public_api_required": True, "api_availability_field": "hostModelCount > 0",
                      "restricted_effort": {},
                      "snapshot_sha256": hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
                      "layout": layout})
+    if reference:
+        metadata["reference_model"] = reference
     if coding:
         metadata.update({"grouped_by": "model_creator.id", "routers_included": False,
                          "score_scale": "indexScore * 100", "required_components": 3,
@@ -512,17 +550,15 @@ def main(argv=None):
     parser.add_argument("--snapshot", type=Path, help="Reuse a saved model catalog; no model source refresh")
     parser.add_argument("--agents-snapshot", type=Path, help="Reuse a saved Coding Agent catalog")
     parser.add_argument("--only", choices=("models", "coding-agents", "both"), default="both")
-    parser.add_argument("--min-score", type=float, default=35)
     parser.add_argument("--telegram", default="https://t.me/warlocksu")
     parser.add_argument("--website", default="https://warlock.su")
     args = parser.parse_args(argv)
-    if not math.isfinite(args.min_score):
-        parser.error("--min-score must be finite")
     snapshot = json.loads(args.snapshot.read_text(encoding="utf-8")) if args.snapshot else fetch_snapshot()
     if not isinstance(snapshot, dict) or not all(key in snapshot for key in ("models", "fetched_at", "index_version", "source_url")):
         raise ValueError("Snapshot must contain models, fetched_at, index_version, and source_url.")
     datetime.fromisoformat(snapshot["fetched_at"])
-    rows = select_models(snapshot["models"], args.min_score) if args.only != "coding-agents" else None
+    reference = reference_model(snapshot["models"]) if args.only != "coding-agents" else None
+    rows = select_models(snapshot["models"], reference["score"]) if reference else None
     agents_snapshot = None
     if args.only != "models":
         agents_snapshot = json.loads(args.agents_snapshot.read_text(encoding="utf-8")) if args.agents_snapshot else fetch_agents_snapshot()
@@ -531,11 +567,11 @@ def main(argv=None):
         datetime.fromisoformat(agents_snapshot["fetched_at"])
         if agents_snapshot["index_version"] != "2.0":
             raise ValueError("Coding Agent index methodology changed; update the three-component validation before running.")
-        agents, excluded = select_agents(agents_snapshot["agents"], snapshot["models"], args.min_score)
+        agents, excluded = select_agents(agents_snapshot["agents"], snapshot["models"])
         if not agents:
             raise ValueError("No eligible measured Coding Agent configurations; existing output preserved.")
     if rows is not None:
-        write_result(rows, snapshot, args.output, args)
+        write_result(rows, snapshot, args.output, args, reference=reference)
     if agents_snapshot is not None:
         write_result(agents, agents_snapshot, args.output / "coding-agents", args, coding=True,
                      model_snapshot=snapshot, excluded=excluded)

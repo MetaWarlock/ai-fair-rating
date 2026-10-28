@@ -9,3 +9,4 @@
 8,StepFun,cn,Step 5 Preview,43.1274491691105,,1,text;image,True,https://artificialanalysis.ai/models/step-5,Claude Code,06c2cfad6e3aba9000f2dd5e429d4407,Step 5 Preview,https://artificialanalysis.ai/agents/coding-agents#coding-agents-index
 9,Kimi,cn,Kimi K3 (Max),41.417319257087,max,17,text;image,True,https://artificialanalysis.ai/models/kimi-k3,Kimi Code CLI,88c83705811535bca8ee000bfd3a256c,Kimi K3 (Max),https://artificialanalysis.ai/agents/coding-agents#coding-agents-index
 10,Alibaba,cn,Qwen3.8 Max,39.2199207885305,,1,text;image;video,False,https://artificialanalysis.ai/models/qwen3-8-max-0803,Claude Code,1630d319b5e4dc5183cb88a2b2af1646,Qwen3.8 Max,https://artificialanalysis.ai/agents/coding-agents#coding-agents-index
+11,Reflection,us,Beam 1.0,20.478987379168,,5,text,True,https://artificialanalysis.ai/models/reflection-beam,Mirror,accfbb12d349c0f2c93547ce814534b2,Beam 1.0,https://artificialanalysis.ai/agents/coding-agents#coding-agents-index

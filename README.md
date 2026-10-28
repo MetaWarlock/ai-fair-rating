@@ -17,7 +17,9 @@ Skill и один Python-скрипт строят два рейтинга: [Art
 3. У модели должен быть хотя бы один API-провайдер в каталоге AA: **`hostModelCount > 0`**. Ноль исключается; отсутствие поля или неверный формат вызывают понятную ошибку. Доступность не определяется по цене, названию модели или открытым весам.
 4. Для всех компаний разрешены любые доступные по API режимы рассуждения, включая **max**. Исключений по разработчику или названию модели нет.
 5. По `creator.id` выбирается одна модель с максимальным исходным баллом.
-6. На график попадают результаты **от 35 баллов включительно**. Отбор и сортировка выполняются до округления; подписи показывают два знака.
+6. Минимальный результат — **текущий измеренный балл Qwen3.8 27B** (релиз `qwen3-8-27b`) в лучшем доступном по API режиме. Проходят модели с таким же или более высоким баллом. Порог пересчитывается из того же снимка AA при каждом запуске; фиксированного числа нет. Отбор и сортировка выполняются до округления; подписи показывают два знака.
+
+Qwen3.8 27B выбрана ориентиром локальной модели. На графике указаны опорная модель и её балл; в `metadata.json` сохраняются точный балл, режим, slug и ссылка. Если измеренного API-результата опорной модели нет, скрипт выдаёт ошибку, не заменяя порог старым числом. Отдельный столбец для опорной модели не добавляется, если у Alibaba есть более сильная подходящая модель.
 
 Страны и названия разработчиков берутся из самого источника. Количество компаний меняется с обновлением данных. Это сравнение достижений в одном индексе при указанных настройках; оно не утверждает равный вычислительный бюджет или доступность модели в определённой подписке. Название режима max само по себе не доказывает мультиагентность.
 
@@ -33,9 +35,9 @@ Skill и один Python-скрипт строят два рейтинга: [Art
 
 Для Coding Agent Index v2.0 берётся опубликованный `indexScore × 100` без округления до отбора. Необходимы измеренные попытки по всем трём компонентам: FrontierCode v1.1, Terminal-Bench 4.0 и SWE-Atlas-QnA-AA. Проверяется совпадение итогового индекса со средним трёх результатов. Предварительные и отсутствующие оценки, неполное покрытие исключаются. При новой версии или изменении компонентов скрипт требует обновления проверки.
 
-Модель сопоставляется с полным каталогом по разработчику и точному имени/короткому имени без учёта регистра. Релизы и режимы не подменяются; неоднозначность вызывает ошибку. Из каталога берутся доступность API (`hostModelCount > 0`), страна, открытые веса и типы ввода. Балл Intelligence Index при этом не используется: для coding-рейтинга он может отсутствовать. После отбора выбирается одна лучшая конфигурация на разработчика, **от 35 баллов включительно**.
+Модель сопоставляется с полным каталогом по разработчику и точному имени/короткому имени без учёта регистра. Релизы и режимы не подменяются; неоднозначность вызывает ошибку. Из каталога берутся доступность API (`hostModelCount > 0`), страна, открытые веса и типы ввода. Балл Intelligence Index при этом не используется: для coding-рейтинга он может отсутствовать. После отбора выбирается одна лучшая конфигурация на разработчика, **без порога по баллам**, включая нулевые результаты. Уровень Qwen3.8 27B ограничивает только Intelligence Index.
 
-Иконки ввода и штриховка описывают модель, а не дополнительные возможности оболочки. Два индекса имеют разные методики; их баллы нельзя напрямую сравнивать. Версии одного индекса также могут менять состав тестов: например, Intelligence Index v5.0 нельзя напрямую сравнивать с прежним v4.3.2.
+Иконки ввода и штриховка описывают модель, а не дополнительные возможности оболочки.
 
 ## Запуск
 
@@ -73,7 +75,7 @@ python skills/ai-fair-rating/scripts/rating.py --output output
 | `rating.png` | График для публикации |
 | `rating.svg` | Масштабируемая версия; контакты кликабельны |
 | `rating.csv` | Модели, страны, точные баллы, режимы, число API-провайдеров, типы ввода (`text;image;audio;video`), открытые веса и ссылки |
-| `metadata.json` | Дата получения данных, версия индекса, правила и проверка зазора флагов |
+| `metadata.json` | Дата получения данных, версия индекса, опорная модель и точный порог, правила и проверка вёрстки |
 | `snapshot.json` | Исходный снимок для воспроизводимого построения |
 
 Это результаты Intelligence Index. В `output/coding-agents/` создаются такие же пять файлов для Coding Agent Index; его CSV дополнительно содержит название оболочки и идентификатор измеренной конфигурации. В coding-метаданных есть причины исключения конфигураций, дата и хеш каталога моделей для проверки API и визуальных атрибутов. Полные снимки обоих источников остаются локально и не входят в Git.
@@ -84,12 +86,12 @@ python skills/ai-fair-rating/scripts/rating.py --output output
 python skills/ai-fair-rating/scripts/rating.py --snapshot output/snapshot.json --agents-snapshot output/coding-agents/snapshot.json --output output/replay
 ```
 
-Дата исходного снимка сохраняется. Новые флаги при необходимости загружаются отдельно; уже используемые флаги входят в skill.
+Дата исходного снимка сохраняется. Порог Intelligence Index берётся у Qwen3.8 27B из этого же снимка. Новые флаги при необходимости загружаются отдельно; уже используемые флаги входят в skill.
 
 Необязательные параметры:
 
 ```bash
-python skills/ai-fair-rating/scripts/rating.py --min-score 40 --telegram https://t.me/yourname --website https://example.com
+python skills/ai-fair-rating/scripts/rating.py --telegram https://t.me/yourname --website https://example.com
 python skills/ai-fair-rating/scripts/rating.py --only models
 python skills/ai-fair-rating/scripts/rating.py --only coding-agents
 ```
@@ -135,4 +137,4 @@ python -m unittest discover -s tests -v
 
 Код и инструкции: [MIT](LICENSE). Флаги: Twemoji 14.0.2, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), Twitter, Inc. and other contributors; [атрибуция](skills/ai-fair-rating/assets/flags/ATTRIBUTION.md).
 
-AI Fair Rating is a reusable agent skill and CLI that builds both Artificial Analysis Intelligence Index and Coding Agent Index charts by default. Each model developer's best measured API result, unrestricted reasoning effort, a minimum score of 35, and reproducible snapshots. Coding charts exclude mixed-model routers and unavailable configurations and name the evaluated harness. The skill instructions are in English; chart labels and this guide are in Russian.
+AI Fair Rating is a reusable agent skill and CLI that builds both Artificial Analysis Intelligence Index and Coding Agent Index charts by default. Each model developer's best measured API result, unrestricted reasoning effort, and reproducible snapshots. Intelligence scores must meet or exceed the current best measured API result of Qwen3.8 27B; Coding Agent scores have no minimum. Coding charts exclude mixed-model routers and unavailable configurations and name the evaluated harness. The skill instructions are in English; chart labels and this guide are in Russian.

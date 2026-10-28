@@ -42,6 +42,27 @@ def agent_page(rows, declared=None):
 
 
 class SelectionTests(unittest.TestCase):
+    def test_reference_threshold_tracks_current_best_measured_setting(self):
+        release = {"slug": rating.REFERENCE_RELEASE}
+        reference = model("reference-xhigh", 20.1068756031705, "alibaba", "xhigh", release=release)
+        models = [reference, model("reference-low", 19, "alibaba", "low", release=release),
+                  model("reference-estimate", 80, "alibaba", "max", estimated=True, release=release),
+                  model("reference-unavailable", 90, "alibaba", "max", hostModelCount=0, release=release),
+                  model("equal", reference["intelligenceIndex"], "equal"),
+                  model("below", reference["intelligenceIndex"] - .0000000001, "below"),
+                  model("above", reference["intelligenceIndex"] + .0000000001, "above")]
+        self.assertEqual(rating.reference_model(models)["slug"], "reference-xhigh")
+        self.assertEqual({r["slug"] for r in rating.select_models(models)}, {"reference-xhigh", "equal", "above"})
+        reference["intelligenceIndex"] = 21
+        self.assertEqual([r["slug"] for r in rating.select_models(models)], ["reference-xhigh"])
+
+    def test_missing_or_unmeasured_reference_is_an_error(self):
+        for entries in ([], [model("only-unrelated", 50)],
+                        [model("reference", None, release={"slug": rating.REFERENCE_RELEASE})],
+                        [model("reference", 50, estimated=True, release={"slug": rating.REFERENCE_RELEASE})]):
+            with self.subTest(entries=entries), self.assertRaisesRegex(ValueError, "reference release"):
+                rating.select_models(entries)
+
     def test_measured_winner_and_inclusive_threshold(self):
         rows = rating.select_models([
             model("estimate", 90, estimated=True), model("measured", 41.123456),
@@ -49,7 +70,7 @@ class SelectionTests(unittest.TestCase):
             model("below", 34.99999, "below"), model("no-score", None, "missing"),
             model("nan", float("nan"), "nan"), model("boolean", True, "bool"),
             model("unknown-status", 80, "unknown", estimated=None),
-        ])
+        ], min_score=35)
         self.assertEqual([m["slug"] for m in rows], ["measured", "at-threshold"])
         self.assertEqual(rows[0]["score"], 41.123456)
 
@@ -60,7 +81,7 @@ class SelectionTests(unittest.TestCase):
                            model(creator + "-high", 60, creator, "high"),
                            model(creator + "-xhigh", 45, creator, "xhigh"),
                            model(creator + "-old", 44, creator, "xhigh")])
-        rows = rating.select_models(models)
+        rows = rating.select_models(models, min_score=35)
         self.assertEqual(len(rows), 3)
         self.assertTrue(all(m["effort"] == "max" for m in rows))
         self.assertEqual(len({m["creator_id"] for m in rows}), 3)
@@ -69,7 +90,7 @@ class SelectionTests(unittest.TestCase):
         rows = rating.select_models([
             model("max", 40, "openai", "max"), model("high", 42, "openai", "high"),
             model("lower-exact-score", 41.999999, "another", "max"),
-        ])
+        ], min_score=35)
         self.assertEqual([row["slug"] for row in rows], ["high", "lower-exact-score"])
 
     def test_api_filter_applies_before_best_model_for_every_developer(self):
@@ -80,31 +101,31 @@ class SelectionTests(unittest.TestCase):
                     model("online-estimate", 95, creator, "max", estimated=True),
                     model("online-best", 52, creator, "max", hostModelCount=2),
                     model("online-older", 48, creator, "xhigh"),
-                ])
+                ], min_score=35)
                 self.assertEqual([row["slug"] for row in rows], ["online-best"])
                 self.assertEqual(rows[0]["api_provider_count"], 2)
 
     def test_model_names_are_not_excluded_when_api_becomes_available(self):
         full = model("muse-wonder-full", 56, "meta", "max", hostModelCount=0)
         wonder = model("muse-wonder", 52.393894697293, "meta", "max")
-        self.assertEqual(rating.select_models([full, wonder])[0]["slug"], "muse-wonder")
+        self.assertEqual(rating.select_models([full, wonder], min_score=35)[0]["slug"], "muse-wonder")
         full["hostModelCount"] = 1
-        self.assertEqual(rating.select_models([full, wonder])[0]["slug"], "muse-wonder-full")
+        self.assertEqual(rating.select_models([full, wonder], min_score=35)[0]["slug"], "muse-wonder-full")
 
     def test_missing_or_malformed_api_availability_fails(self):
         for count in (None, True, False, -1, 1.0, "1"):
             with self.subTest(count=count), self.assertRaisesRegex(ValueError, "hostModelCount"):
-                rating.select_models([model("unknown-api", 60, hostModelCount=count)])
+                rating.select_models([model("unknown-api", 60, hostModelCount=count)], min_score=35)
         missing = model("missing-api", 60)
         del missing["hostModelCount"]
         with self.assertRaisesRegex(ValueError, "hostModelCount"):
-            rating.select_models([missing])
+            rating.select_models([missing], min_score=35)
 
     def test_input_modalities_belong_to_selected_model(self):
         rows = rating.select_models([
             model("winner", 50, inputModalityImage=True, inputModalitySpeech=True, inputModalityVideo=True),
             model("older", 40, isOpenWeights=True), model("text-only", 39, "another", isOpenWeights=True),
-        ])
+        ], min_score=35)
         self.assertEqual(rows[0]["input_modalities"], ["text", "image", "audio", "video"])
         self.assertEqual(rows[1]["input_modalities"], ["text"])
         self.assertFalse(rows[0]["open_weights"])
@@ -113,13 +134,13 @@ class SelectionTests(unittest.TestCase):
     def test_missing_or_malformed_open_weight_status_fails(self):
         for invalid in (None, 0, 1, "true"):
             with self.subTest(value=invalid), self.assertRaisesRegex(ValueError, "isOpenWeights"):
-                rating.select_models([model("unknown-weights", 40, isOpenWeights=invalid)])
+                rating.select_models([model("unknown-weights", 40, isOpenWeights=invalid)], min_score=35)
 
     def test_missing_or_malformed_input_modalities_fail(self):
         for _, field, _ in rating.INPUT_MODALITIES:
             for invalid in (None, 0, 1, "true"):
                 with self.subTest(field=field, value=invalid), self.assertRaisesRegex(ValueError, field):
-                    rating.select_models([model("bad-modality", 40, **{field: invalid})])
+                    rating.select_models([model("bad-modality", 40, **{field: invalid})], min_score=35)
 
 
 class SourceTests(unittest.TestCase):
@@ -159,10 +180,10 @@ class SourceTests(unittest.TestCase):
 
 
 class AgentSelectionTests(unittest.TestCase):
-    def test_measured_api_best_by_model_developer_and_threshold(self):
+    def test_measured_api_best_by_model_developer_without_score_threshold(self):
         models = [model("first", None, estimated=True), model("second", None),
                   model("offline", None, hostModelCount=0), model("threshold", None, "another"),
-                  model("below", None, "third")]
+                  model("below", None, "third"), model("zero", None, "fourth")]
         rows, excluded = rating.select_agents([
             agent("one", "first", .500000001), agent("two", "second", .5),
             agent("offline", "offline", .9), agent("estimated", "second", .95, indexScoreIsEstimated=True),
@@ -171,13 +192,14 @@ class AgentSelectionTests(unittest.TestCase):
             agent("partial", "second", .97, indexComponentCount=2),
             agent("missing", "second", None), agent("edge", "threshold", .35, "another"),
             agent("below", "below", .349999999, "third"),
+            agent("zero", "zero", 0, "fourth"),
         ], models)
-        self.assertEqual([r["slug"] for r in rows], ["first", "threshold"])
+        self.assertEqual([r["slug"] for r in rows], ["first", "threshold", "below", "zero"])
         self.assertEqual(rows[0]["agent_id"], "one")
         self.assertEqual(rows[0]["company"], "example")
         self.assertEqual(rows[0]["score"], .500000001 * 100)
         self.assertTrue({"no_public_api", "estimated_score", "unavailable_configuration", "mixed_model_router",
-                         "incomplete_benchmarks", "missing_score", "below_threshold"}.issubset({r["reason"] for r in excluded}))
+                         "incomplete_benchmarks", "missing_score"}.issubset({r["reason"] for r in excluded}))
 
     def test_catalog_matching_preserves_release_and_effort(self):
         models = [model("old", 40, name="Model Max", shortName="Model Max"),
@@ -199,12 +221,30 @@ class AgentSelectionTests(unittest.TestCase):
 
 
 class OutputTests(unittest.TestCase):
+    def test_coding_only_renders_zero_without_a_reference_or_score_cutoff(self):
+        models = {"source_url": rating.SOURCE, "fetched_at": "2026-10-28T21:00:00+00:00",
+                  "index_version": "5.0", "models": [model("zero", None, inputModalityImage=True,
+                  inputModalitySpeech=True, inputModalityVideo=True)]}
+        agents = {"source_url": rating.AGENT_SOURCE, "fetched_at": "2026-10-28T21:00:00+00:00",
+                  "index_version": "2.0", "agents": [agent("one", "zero", 0)]}
+        with tempfile.TemporaryDirectory() as directory, patch.object(rating, "fetch_snapshot", return_value=models), patch.object(
+                rating, "fetch_agents_snapshot", return_value=agents):
+            rating.main(["--only", "coding-agents", "--output", directory])
+            result = Path(directory) / "coding-agents"
+            metadata = json.loads((result / "metadata.json").read_text())
+            self.assertIsNone(metadata["minimum_score_inclusive"])
+            self.assertEqual(metadata["developers_shown"], 1)
+            self.assertEqual(metadata["layout"]["input_icons_above_short_bars"], 4)
+            self.assertGreaterEqual(metadata["layout"]["minimum_flag_value_gap_points"], 6)
+            self.assertTrue((result / "rating.png").exists())
+
     def test_snapshot_replay_and_flag_clearance(self):
         from PIL import Image
 
         snapshot = {"source_url": rating.SOURCE, "fetched_at": "2026-10-15T20:00:00+00:00",
                     "index_version": "4.3.2", "models": [model("first", 41.123456, inputModalityImage=True,
-                    inputModalitySpeech=True, inputModalityVideo=True), model("second", 35, "second", isOpenWeights=True)]}
+                    inputModalitySpeech=True, inputModalityVideo=True), model("second", 35, "second", isOpenWeights=True,
+                    release={"slug": rating.REFERENCE_RELEASE})]}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "source.json"
@@ -214,6 +254,8 @@ class OutputTests(unittest.TestCase):
             metadata = json.loads((output / "metadata.json").read_text())
             self.assertEqual(metadata["fetched_at"], snapshot["fetched_at"])
             self.assertEqual(metadata["developers_shown"], 2)
+            self.assertEqual(metadata["minimum_score_inclusive"], 35)
+            self.assertEqual(metadata["reference_model"]["slug"], "second")
             self.assertTrue(metadata["public_api_required"])
             self.assertEqual(metadata["restricted_effort"], {})
             self.assertGreaterEqual(metadata["layout"]["minimum_flag_value_gap_points"], 6)
@@ -231,7 +273,7 @@ class OutputTests(unittest.TestCase):
 
     def test_default_builds_both_and_replays_separate_snapshots(self):
         snapshot = {"source_url": rating.SOURCE, "fetched_at": "2026-10-28T21:00:00+00:00",
-                    "index_version": "5.0", "models": [model("first", 41)]}
+                    "index_version": "5.0", "models": [model("first", 41, release={"slug": rating.REFERENCE_RELEASE})]}
         agents_snapshot = {"source_url": rating.AGENT_SOURCE, "fetched_at": "2026-10-28T22:00:00+00:00",
                            "index_version": "2.0", "agents": [agent("one", "first", .51)]}
         with tempfile.TemporaryDirectory() as directory:
@@ -250,6 +292,8 @@ class OutputTests(unittest.TestCase):
                 self.assertGreaterEqual(metadata["layout"]["minimum_label_footer_gap_points"], 8)
             self.assertEqual(metadata["model_catalog_fetched_at"], snapshot["fetched_at"])
             self.assertFalse(metadata["routers_included"])
+            self.assertIsNone(metadata["minimum_score_inclusive"])
+            self.assertEqual(metadata["score_filter"], "none")
             self.assertIn("Harness", (root / "replay/coding-agents/rating.csv").read_text(encoding="utf-8-sig"))
             preserved = root / "replay/rating.png"
             before = preserved.read_bytes()

@@ -3,8 +3,9 @@
   "fetched_at": "2026-10-28T21:13:17.042624+00:00",
   "index_version": "2.0",
   "catalog_entries": 32,
-  "developers_shown": 10,
-  "minimum_score_inclusive": 35,
+  "developers_shown": 11,
+  "minimum_score_inclusive": null,
+  "score_filter": "none",
   "estimated_scores_included": false,
   "public_api_required": true,
   "api_availability_field": "hostModelCount > 0",
@@ -12,9 +13,10 @@
   "snapshot_sha256": "88427e9ddb726fa40af55270a0807ba13b08e8eb682a4ea06c083888256e6e00",
   "layout": {
     "minimum_flag_value_gap_points": 7.0,
-    "minimum_label_footer_gap_points": 10.31,
-    "open_weight_bars_hatched": 4,
-    "input_icons_shown": 22,
+    "minimum_label_footer_gap_points": 13.69,
+    "open_weight_bars_hatched": 5,
+    "input_icons_shown": 23,
+    "input_icons_above_short_bars": 0,
     "minimum_input_icon_bar_clearance_points": 9.0
   },
   "grouped_by": "model_creator.id",
@@ -29,16 +31,6 @@
       "id": "dabb064c01568bc018ba730cc39c4a96",
       "label": "Devin Fusion CLI - GPT-6 Astra XHigh + SWE-2 Medium",
       "reason": "mixed_model_router"
-    },
-    {
-      "id": "b54e883be1cff7a6a43a737ee106011c",
-      "label": "Codex - GPT-6.1 Terra (Low)",
-      "reason": "below_threshold"
-    },
-    {
-      "id": "d843fce803ff4f84ababc47040306116",
-      "label": "Muse Code - Muse Spark Open (Xhigh)",
-      "reason": "below_threshold"
     },
     {
       "id": "24cd2ab21d1cf5161ddd831f0949bff4",
@@ -61,24 +53,9 @@
       "reason": "no_public_api"
     },
     {
-      "id": "c54a3c8e7e89d5a784e98211605eaa53",
-      "label": "Codex - GPT-6 Luna (Max)",
-      "reason": "below_threshold"
-    },
-    {
-      "id": "accfbb12d349c0f2c93547ce814534b2",
-      "label": "Mirror - Beam 1.0",
-      "reason": "below_threshold"
-    },
-    {
       "id": "615aa2e21916e4843210a552131d95b7",
       "label": "Antigravity CLI - Gemini 4 Carbon (High)",
       "reason": "unavailable_configuration"
-    },
-    {
-      "id": "e17ee3a79eab160154a92f31c6c2b1fa",
-      "label": "Antigravity SDK - Gemini 3.8 Flash (High)",
-      "reason": "below_threshold"
     }
   ]
 }

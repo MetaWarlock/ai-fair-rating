@@ -3,8 +3,9 @@
   "fetched_at": "2026-10-28T21:13:16.039708+00:00",
   "index_version": "5.0",
   "catalog_entries": 716,
-  "developers_shown": 6,
-  "minimum_score_inclusive": 35,
+  "developers_shown": 14,
+  "minimum_score_inclusive": 20.1068756031705,
+  "score_filter": "at_least_reference_model",
   "estimated_scores_included": false,
   "public_api_required": true,
   "api_availability_field": "hostModelCount > 0",
@@ -12,9 +13,18 @@
   "snapshot_sha256": "d9d8ff3a2aa7c8bd555b526417b3c221e1da32fccdb2e2625db295c3fc654ed3",
   "layout": {
     "minimum_flag_value_gap_points": 7.0,
-    "minimum_label_footer_gap_points": 10.36,
-    "open_weight_bars_hatched": 0,
-    "input_icons_shown": 16,
-    "minimum_input_icon_bar_clearance_points": 9.0
+    "minimum_label_footer_gap_points": 18.1,
+    "open_weight_bars_hatched": 5,
+    "input_icons_shown": 32,
+    "input_icons_above_short_bars": 0,
+    "minimum_input_icon_bar_clearance_points": 3.0
+  },
+  "reference_model": {
+    "slug": "qwen3-8-27b",
+    "name": "Qwen3.8 27B (Xhigh)",
+    "score": 20.1068756031705,
+    "effort": "xhigh",
+    "url": "https://artificialanalysis.ai/models/qwen3-8-27b",
+    "release_slug": "qwen3-8-27b"
   }
 }
