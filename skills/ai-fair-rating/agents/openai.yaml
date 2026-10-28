@@ -1,4 +1,4 @@
 interface:
   display_name: "AI Fair Rating"
-  short_description: "Each AI developer's best measured API model"
-  default_prompt: "Use $ai-fair-rating to build the latest AI developer ranking."
+  short_description: "Intelligence and coding rankings, one model per developer"
+  default_prompt: "Use $ai-fair-rating to refresh and show both the Intelligence Index and Coding Agent Index developer rankings."

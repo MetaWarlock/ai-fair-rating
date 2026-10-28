@@ -1,11 +1,11 @@
 ---
 name: ai-fair-rating
-description: "Build or refresh an Artificial Analysis Intelligence Index chart with each AI developer's best independently measured API model and country flags. Use for AI Fair Rating or a deduplicated AI developer ranking; not for subscription prices or unrelated benchmarks."
+description: "Build or refresh both Artificial Analysis Intelligence Index and Coding Agent Index charts, with one measured API model per developer, country flags, input icons and open-weight hatching. Use for AI Fair Rating or deduplicated AI developer rankings; not for subscription prices or unrelated benchmarks."
 ---
 
 # AI Fair Rating
 
-Generate the current developer ranking from public Artificial Analysis data using [scripts/rating.py](scripts/rating.py). The helper fetches the full catalog, selects models, and writes PNG, SVG, CSV, metadata, and a reusable source snapshot. No API key is needed.
+Generate both current developer rankings from public Artificial Analysis data using [scripts/rating.py](scripts/rating.py). The helper fetches the full model and coding-agent catalogs, selects results, and writes PNG, SVG, CSV, metadata, and reusable source snapshots. No API key is needed. Keep one skill and one entry point.
 
 ## Rules
 
@@ -19,6 +19,15 @@ Generate the current developer ranking from public Artificial Analysis data usin
 - Inside each bar, stack supported input icons from bottom to top: text, photo, audio, video. Read the source's boolean `inputModalityText`, `inputModalityImage`, `inputModalitySpeech`, and `inputModalityVideo` fields; omit unsupported types and fail on missing or malformed flags. These are input capabilities of the selected model, not output capabilities or all models from the developer. Include a legend, preserve icon clearance inside the bars, and export the types in CSV.
 - Use the subtitle `Рейтинг лучших разработчиков AI по их лучшей модели`. Put `https://t.me/warlocksu` and `https://warlock.su` in the upper-right corner by default; CLI options allow replacement.
 
+## Coding Agent Index
+
+- Fetch the complete `benchmarkRows` from [Coding Agent Index](https://artificialanalysis.ai/agents/coding-agents), resolving JSON Flight references. Do not use only the highlighted cards or default selection. Validate the full count (the source's selector excludes router rows) and index version.
+- Group by the **model developer**, not the agent/harness developer. Include the measured model and harness in labels and CSV. Exclude `isRouter == true` mixed-model routers and `isUnavailable == true` configurations. Missing/malformed flags are errors. The user explicitly chose this grouping.
+- For v2.0, use the published `indexScore * 100`, retaining full precision, and require measured attempts for all three components: `frontiercode-v1.1-main`, `swe-atlas-qna`, `terminal-bench-v4`. Reject missing/estimated scores and incomplete coverage; check that the published score equals the mean of the three measured component scores. A new index version or component set requires updating validation, not silently reusing v2.0 rules.
+- Match the model to the complete model catalog by exact name or short name (case-insensitive) and model creator slug. Do not remove release dates, substitute efforts, or guess aliases. No unique match is an actionable error. Use that entry's `hostModelCount`, creator identity/country, open-weight flag and input modalities. The separate Intelligence Index score may be missing or estimated; it is not the Coding Agent score.
+- Apply the same API requirement, one-best-per-developer selection and inclusive 35-point threshold. Use subtitle `Рейтинг разработчиков AI по лучшей модели в coding-агенте`. Model input icons and open-weight hatching describe the underlying model, not extra features of the harness.
+- Explain that the two indexes and their version changes are separate scales; do not interpret their differences as a direct gain/loss in ability.
+
 ## Run
 
 Resolve paths relative to this skill directory, not the caller's working directory. Install dependencies from [requirements.txt](requirements.txt) in an available Python 3.10+ environment, preferably a virtual environment:
@@ -28,8 +37,10 @@ python -m pip install -r /path/to/ai-fair-rating/requirements.txt
 python /path/to/ai-fair-rating/scripts/rating.py --output /path/to/output
 ```
 
-For a reproducible historical chart, add `--snapshot /path/to/output/snapshot.json`. The original retrieval date stays on the chart. Never present a saved snapshot as a fresh fetch. `--min-score`, `--telegram`, and `--website` override presentation defaults when requested.
+The default run writes Intelligence results directly in the output directory and Coding Agent results in its `coding-agents/` subdirectory. Each has `rating.png`, `rating.svg`, `rating.csv`, `metadata.json`, and `snapshot.json`. Coding metadata also records excluded configurations and the model-catalog hash/date used for API and visual attributes.
 
-Inspect the generated PNG before delivering it. Report the data date and developer count; show the image and link the downloadable output. If fetching or the source schema fails, report the error and preserve existing output rather than inventing values or silently using a partial catalog. An empty selection is a valid error, not a blank chart.
+For reproducible historical charts, add both `--snapshot /path/to/output/snapshot.json --agents-snapshot /path/to/output/coding-agents/snapshot.json`. Original retrieval dates stay on the charts. Never present saved snapshots as fresh fetches. If explicitly asked for one index, use `--only models` or `--only coding-agents`; Coding Agent output still needs the model catalog. `--min-score`, `--telegram`, and `--website` override presentation defaults when requested.
+
+Inspect both generated PNGs before delivering them. Report each source date, index version and developer count; show both images and link downloadable output. If fetching or the source schema fails, report the error and preserve existing output rather than inventing values or silently using a partial catalog. An empty selection is a valid error, not a blank chart.
 
 This is a comparison within the AA index under these filters. Do not claim equal compute budgets, subscription availability, or that the name max proves multi-agent inference. Do not publish, push, or message anyone merely because this skill was invoked.

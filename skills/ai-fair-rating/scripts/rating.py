@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch Artificial Analysis and draw each developer's best measured API model."""
+"""Build Intelligence and Coding Agent rankings, one measured API model per developer."""
 
 import argparse
 import csv
@@ -17,6 +17,8 @@ from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 SOURCE = "https://artificialanalysis.ai/models/comparisons"
+AGENT_SOURCE = "https://artificialanalysis.ai/agents/coding-agents"
+AGENT_COMPONENTS = {"frontiercode-v1.1-main", "swe-atlas-qna", "terminal-bench-v4"}
 SKILL_DIR = Path(__file__).resolve().parents[1]
 FLAG_SOURCE = "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/"
 INPUT_MODALITIES = (("text", "inputModalityText", "Текст"),
@@ -31,14 +33,18 @@ def download(url):
         return response.read()
 
 
-def parse_page(page):
+def flight_text(page):
     """Read JSON-encoded Next.js flight strings without executing site code."""
     chunks = []
     for match in re.finditer(r"self\.__next_f\.push\((\[.*?\])\)</script>", page):
         item = json.loads(match.group(1))
         if len(item) > 1 and isinstance(item[1], str):
             chunks.append(item[1])
-    flight = "".join(chunks)
+    return "".join(chunks)
+
+
+def parse_page(page):
+    flight = flight_text(page)
     manifests = []
     for match in re.finditer(r'"manifest"\s*:\s*(\{[^}]+\})', flight):
         item = json.loads(match.group(1))
@@ -51,6 +57,71 @@ def parse_page(page):
     plain = html.unescape(re.sub(r"<[^>]+>", " ", page))
     counts = [int(n) for n in re.findall(r"of\s+(\d+)\s+models", plain)]
     return manifests, version.group(1) if version else None, max(counts, default=0)
+
+
+def parse_agents_page(page):
+    """Read the complete benchmarkRows, including React Flight references."""
+    records = {}
+    decoder = json.JSONDecoder()
+    for line in flight_text(page).splitlines():
+        match = re.match(r"^([0-9a-f]+):([\[{])", line)
+        if match:
+            try:
+                records[match[1]] = decoder.raw_decode(line[match.end() - 1:])[0]
+            except ValueError:
+                continue
+
+    def resolve(value, seen=()):
+        if isinstance(value, str) and re.fullmatch(r"\$[0-9a-f]+(?::[A-Za-z0-9_]+)*", value):
+            if value in seen:
+                raise ValueError("Cyclic Coding Agent source reference; update the parser.")
+            parts = value[1:].split(":")
+            try:
+                target = records[parts[0]]
+                for part in parts[1:]:
+                    target = target[3] if part == "props" and isinstance(target, list) else (
+                        target[int(part)] if isinstance(target, list) else target[part])
+                return resolve(target, seen + (value,))
+            except (KeyError, IndexError, TypeError, ValueError) as error:
+                raise ValueError(f"Unresolved Coding Agent reference {value}; update the parser.") from error
+        if isinstance(value, list):
+            return [resolve(item, seen) for item in value]
+        if isinstance(value, dict):
+            return {key: resolve(item, seen) for key, item in value.items()}
+        return value
+
+    catalogs = []
+
+    def find(value):
+        if isinstance(value, dict):
+            if "benchmarkRows" in value:
+                catalogs.append(resolve(value["benchmarkRows"]))
+            for item in value.values():
+                find(item)
+        elif isinstance(value, list):
+            for item in value:
+                find(item)
+
+    for record in records.values():
+        find(record)
+    version = re.search(r"Coding Agent Index v(\d+(?:\.\d+)+)", html.unescape(page))
+    counts = [int(n) for n in re.findall(r"of\s+(\d+)\s+models", html.unescape(re.sub(r"<[^>]+>", " ", page)))]
+    if len(catalogs) != 1 or not isinstance(catalogs[0], list) or not version or not counts:
+        raise ValueError("Complete Coding Agent benchmarkRows, version or model count missing; update the source parser.")
+    rows = catalogs[0]
+    if not rows or any(not isinstance(row, dict) or not row.get("id") for row in rows):
+        raise ValueError("Invalid Coding Agent catalog rows; update the source parser.")
+    # The page's selector counts models with its router toggle off.
+    non_routers = sum(row.get("isRouter") is False for row in rows)
+    if len({row['id'] for row in rows}) != len(rows) or non_routers != max(counts):
+        raise ValueError(f"Incomplete Coding Agent catalog: {len(rows)} configurations, page declares {max(counts)} models.")
+    return rows, version.group(1)
+
+
+def fetch_agents_snapshot():
+    rows, version = parse_agents_page(download(AGENT_SOURCE).decode("utf-8"))
+    return {"source_url": AGENT_SOURCE, "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "index_version": version, "agents": rows}
 
 
 def decode_catalog(payload, key_hex):
@@ -81,52 +152,131 @@ def fetch_snapshot():
             "index_version": version, "models": models}
 
 
-def select_models(models, min_score=35):
+def finite_number(value):
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def model_details(model):
+    hosts = model.get("hostModelCount")
+    if type(hosts) is not int or hosts < 0:
+        raise ValueError(f"Missing or invalid API availability (hostModelCount) for {model.get('slug', '?')}. "
+                         "Refresh the source snapshot or update the fetcher; do not infer API availability.")
+    if hosts == 0:
+        return None
+    creator = model.get("creator") or {}
+    if not all(creator.get(key) for key in ("id", "slug", "name")):
+        raise ValueError(f"Missing developer identity for model {model.get('slug', '?')}.")
+    if type(model.get("isOpenWeights")) is not bool:
+        raise ValueError(f"Missing or invalid isOpenWeights for {model.get('slug', '?')}. "
+                         "Refresh the snapshot or update the source parser; do not infer weight availability.")
+    modalities = []
+    for kind, field, _ in INPUT_MODALITIES:
+        if type(model.get(field)) is not bool:
+            raise ValueError(f"Missing or invalid input modality {field} for {model.get('slug', '?')}. "
+                             "Refresh the snapshot or update the source parser; do not infer support.")
+        if model[field]:
+            modalities.append(kind)
+    return {"company": creator["name"], "creator_id": creator["id"],
+            "company_slug": creator["slug"], "country": creator.get("country"),
+            "color": creator.get("color") or "#626a75", "model": model["name"],
+            "short_name": model.get("shortName") or model["name"],
+            "effort": (model.get("effort") or {}).get("slug"), "api_provider_count": hosts,
+            "slug": model["slug"], "input_modalities": modalities, "open_weights": model["isOpenWeights"],
+            "url": "https://artificialanalysis.ai/models/" + model["slug"]}
+
+
+def best_per_developer(candidates, min_score):
     best = {}
-    for model in models:
-        score = model.get("intelligenceIndex")
-        if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score):
-            continue
-        if model.get("intelligenceIndexIsEstimated") is not False:
-            continue
-        hosts = model.get("hostModelCount")
-        if type(hosts) is not int or hosts < 0:
-            raise ValueError(
-                f"Missing or invalid API availability (hostModelCount) for {model.get('slug', '?')}. "
-                "Refresh the source snapshot; if the source schema changed, update the fetcher. "
-                "Do not infer API availability.")
-        if hosts == 0:
-            continue
-        creator = model.get("creator") or {}
-        if not all(creator.get(key) for key in ("id", "slug", "name")):
-            raise ValueError(f"Missing developer identity for model {model.get('slug', '?')}.")
-        effort = (model.get("effort") or {}).get("slug")
-        if type(model.get("isOpenWeights")) is not bool:
-            raise ValueError(f"Missing or invalid isOpenWeights for {model.get('slug', '?')}. "
-                             "Refresh the snapshot or update the source parser; do not infer weight availability.")
-        modalities = []
-        for kind, field, _ in INPUT_MODALITIES:
-            if type(model.get(field)) is not bool:
-                raise ValueError(f"Missing or invalid input modality {field} for {model.get('slug', '?')}. "
-                                 "Refresh the snapshot or update the source parser; do not infer support.")
-            if model[field]:
-                modalities.append(kind)
-        candidate = {"company": creator["name"], "creator_id": creator["id"],
-                     "company_slug": creator["slug"], "country": creator.get("country"),
-                     "color": creator.get("color") or "#626a75", "model": model["name"],
-                     "short_name": model.get("shortName") or model["name"],
-                     "score": score, "effort": effort, "api_provider_count": hosts, "slug": model["slug"],
-                     "input_modalities": modalities,
-                     "open_weights": model["isOpenWeights"],
-                     "url": "https://artificialanalysis.ai/models/" + model["slug"]}
-        previous = best.get(creator["id"])
-        if previous is None or (-score, candidate["slug"]) < (-previous["score"], previous["slug"]):
-            best[creator["id"]] = candidate
+    for candidate in candidates:
+        previous = best.get(candidate["creator_id"])
+        if previous is None or (-candidate["score"], candidate["slug"], candidate.get("agent_id", "")) < (
+                -previous["score"], previous["slug"], previous.get("agent_id", "")):
+            best[candidate["creator_id"]] = candidate
     rows = sorted((m for m in best.values() if m["score"] >= min_score),
                   key=lambda m: (-m["score"], m["company"], m["slug"]))
     for rank, row in enumerate(rows, 1):
         row["rank"] = rank
     return rows
+
+
+def select_models(models, min_score=35):
+    candidates = []
+    for model in models:
+        score = model.get("intelligenceIndex")
+        if not finite_number(score) or model.get("intelligenceIndexIsEstimated") is not False:
+            continue
+        candidate = model_details(model)
+        if candidate:
+            candidates.append({**candidate, "score": score})
+    return best_per_developer(candidates, min_score)
+
+
+def model_name_key(name):
+    return name.casefold().strip()
+
+
+def select_agents(agents, models, min_score=35):
+    names = {}
+    for model in models:
+        for name in {model.get("name"), model.get("shortName")} - {None}:
+            key = (model.get("creator", {}).get("slug"), model_name_key(name))
+            names.setdefault(key, {})[model["slug"]] = model
+    candidates = []
+    excluded = []
+    for agent in agents:
+        score = agent.get("indexScore")
+        reason = None
+        if not finite_number(score):
+            reason = "missing_score"
+        elif not 0 <= score <= 1:
+            raise ValueError(f"Invalid Coding Agent indexScore for {agent.get('id')}; expected 0..1.")
+        elif agent.get("indexScoreIsEstimated") is True:
+            reason = "estimated_score"
+        for field in ("isRouter", "isUnavailable"):
+            if type(agent.get(field)) is not bool:
+                raise ValueError(f"Missing Coding Agent {field} for {agent.get('id')}; update the parser.")
+        if agent["isRouter"]:
+            reason = "mixed_model_router"
+        elif agent["isUnavailable"]:
+            reason = "unavailable_configuration"
+        elif not reason:
+            evals = agent.get("evals")
+            if not isinstance(evals, list) or agent.get("indexComponentCount") != 3 or len(evals) != 3:
+                reason = "incomplete_benchmarks"
+            elif any(not finite_number(e.get("mean", {}).get("reward")) or
+                     not 0 <= e["mean"]["reward"] <= 1 or
+                     not isinstance(e.get("safety"), dict) or
+                     type(e["safety"].get("attemptCount")) is not int or e["safety"]["attemptCount"] <= 0 for e in evals):
+                reason = "missing_measured_attempts"
+            elif {e.get("datasetIndexName") for e in evals} != AGENT_COMPONENTS:
+                raise ValueError("Coding Agent benchmark components changed; update the parser and methodology.")
+            elif not math.isclose(score, sum(e["mean"]["reward"] for e in evals) / 3, abs_tol=1e-10):
+                raise ValueError("Coding Agent index disagrees with measured components; check index methodology.")
+        if not reason and score * 100 < min_score:
+            reason = "below_threshold"
+        if reason:
+            excluded.append({"id": agent.get("id"), "label": agent.get("displayLabel"), "reason": reason})
+            continue
+        creators = agent.get("modelCreators")
+        if not isinstance(creators, list) or len(creators) != 1:
+            raise ValueError(f"Ambiguous model developer for Coding Agent {agent.get('id')}.")
+        label = agent.get("display", {}).get("model")
+        if not isinstance(label, str):
+            raise ValueError(f"Missing Coding Agent model label for {agent.get('id')}.")
+        matches = names.get((creators[0].get("slug"), model_name_key(label)), {})
+        if len(matches) != 1:
+            raise ValueError(f"Cannot uniquely match Coding Agent model {label!r} to API catalog "
+                             f"({len(matches)} matches). Refresh both sources or update name matching.")
+        candidate = model_details(next(iter(matches.values())))
+        if candidate is None:
+            excluded.append({"id": agent["id"], "label": agent.get("displayLabel"), "reason": "no_public_api"})
+            continue
+        agent_name = agent.get("display", {}).get("agent")
+        if not isinstance(agent_name, str) or not agent_name:
+            raise ValueError(f"Missing agent name for {agent['id']}.")
+        candidates.append({**candidate, "score": score * 100, "agent_id": agent["id"], "agent": agent_name,
+                           "agent_model_label": label, "agent_url": AGENT_SOURCE + "#coding-agents-index"})
+    return best_per_developer(candidates, min_score), excluded
 
 
 def flag_path(country, output):
@@ -186,7 +336,7 @@ def input_icon(kind):
     return icon
 
 
-def render_chart(rows, snapshot, output, min_score, telegram, website):
+def render_chart(rows, snapshot, output, min_score, telegram, website, coding=False):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -207,7 +357,7 @@ def render_chart(rows, snapshot, output, min_score, telegram, website):
                          "hatch.linewidth": .6})
     width = max(14.5, 3 + len(rows) * .98)
     fig, ax = plt.subplots(figsize=(width, 9.4), dpi=180)
-    fig.subplots_adjust(left=.062, right=.985, bottom=.32, top=.78)
+    fig.subplots_adjust(left=.062, right=.985, bottom=.355 if coding else .32, top=.78)
     colors = [m["color"] if is_color_like(m["color"]) else "#626a75" for m in rows]
     bars = ax.bar(range(len(rows)), [m["score"] for m in rows], width=.70, color=colors, zorder=3)
     for bar, row in zip(bars, rows):
@@ -222,7 +372,8 @@ def render_chart(rows, snapshot, output, min_score, telegram, website):
                                  xytext=(0, 7), textcoords="offset points", ha="center", va="bottom",
                                  fontproperties=regular, fontsize=12.5, color="#1b2027", zorder=4))
     labels = [company_label(m["company"]) + "\n" + "\n".join(textwrap.wrap(
-        m["short_name"].replace(" with fallback", "; fallback"), 25)) for m in rows]
+        m["short_name"].replace(" with fallback", "; fallback"), 25)) +
+        ("\n" + "\n".join(textwrap.wrap(m["agent"], 25)) if coding else "") for m in rows]
     ax.set_xticks(range(len(rows)), labels, rotation=58, ha="right", rotation_mode="anchor", fontsize=12)
     ax.tick_params(axis="x", length=0, pad=14)
     ax.tick_params(axis="y", length=0, pad=9, labelsize=12)
@@ -232,33 +383,37 @@ def render_chart(rows, snapshot, output, min_score, telegram, website):
     ax.grid(axis="y", color="#d7dce2", linestyle=(0, (2, 4)), linewidth=.8)
     for spine in ax.spines.values():
         spine.set_visible(False)
-    ax.set_ylabel("Intelligence Index, баллы", fontsize=12.5, labelpad=11)
-    fig.text(.062, .948, "Artificial Analysis Intelligence Index", fontproperties=bold, fontsize=22)
-    fig.text(.062, .902, "Рейтинг лучших разработчиков AI по их лучшей модели",
+    ax.set_ylabel("Coding Agent Index, баллы" if coding else "Intelligence Index, баллы", fontsize=12.5, labelpad=11)
+    fig.text(.062, .948, "Artificial Analysis Coding Agent Index" if coding else "Artificial Analysis Intelligence Index",
+             fontproperties=bold, fontsize=22)
+    fig.text(.062, .902, "Рейтинг разработчиков AI по лучшей модели в coding-агенте" if coding else
+             "Рейтинг лучших разработчиков AI по их лучшей модели",
              fontproperties=regular, fontsize=15, color="#414a56")
-    fig.text(.062, .862, f"Одна лучшая модель на компанию · доступна по API · измеренные результаты ≥ {min_score:g}",
+    rule = "Одна конфигурация на разработчика модели · без роутеров · API" if coding else "Одна лучшая модель на компанию · доступна по API"
+    fig.text(.062, .862, f"{rule} · измеренные результаты ≥ {min_score:g}",
              fontproperties=regular, fontsize=11.5, color="#515965")
     for y, url in ((.954, telegram), (.925, website)):
         fig.text(.985, y, url, ha="right", fontproperties=regular, fontsize=11,
                  color="#414a56", url=url)
-    fig.text(.062, .811, "Ввод (AA):", fontproperties=regular, fontsize=10.5,
+    fig.text(.062, .811, "Ввод модели:", fontproperties=regular, fontsize=10.5,
              color="#515965", va="center")
     for index, (kind, _, label) in enumerate(INPUT_MODALITIES):
-        x = .13 + index * .079
+        x = .155 + index * .079
         fig.add_artist(AnnotationBbox(input_icon(kind), (x, .811), xycoords=fig.transFigure,
                                       frameon=False, pad=0))
         fig.text(x, .811, label, transform=fig.transFigure + ScaledTranslation(18 / 72, 0, fig.dpi_scale_trans),
                  fontproperties=regular, fontsize=10.5, va="center", color="#515965")
-    fig.add_artist(Rectangle((.48, .801), .022, .020, transform=fig.transFigure,
+    fig.add_artist(Rectangle((.51, .801), .022, .020, transform=fig.transFigure,
                              facecolor="#697586", edgecolor=(1, 1, 1, .65), linewidth=0, hatch="///"))
-    fig.text(.512, .811, "Открытые веса", fontproperties=regular, fontsize=10.5,
+    fig.text(.542, .811, "Открытые веса модели", fontproperties=regular, fontsize=10.5,
              va="center", color="#515965")
     data_date = datetime.fromisoformat(snapshot["fetched_at"]).strftime("%d.%m.%Y")
-    fig.text(.062, .064, f"{len(rows)} разработчиков · индекс v{snapshot['index_version']} · данные AA: {data_date} (UTC)",
+    date_label = fig.text(.062, .064, f"{len(rows)} разработчиков · индекс v{snapshot['index_version']} · данные AA: {data_date} (UTC)",
              fontproperties=regular, fontsize=11, color="#515965")
     fig.text(.062, .039, "Флаги: страна разработчика по данным Artificial Analysis. Отбор и сортировка — по исходным точным баллам.",
              fontproperties=regular, fontsize=10.5, color="#515965")
-    fig.text(.062, .015, "Источник: artificialanalysis.ai/models/comparisons · Флаги: Twemoji 14.0.2, CC BY 4.0.",
+    source_label = snapshot["source_url"].removeprefix("https://")
+    fig.text(.062, .015, f"Источник: {source_label} · Флаги: Twemoji 14.0.2, CC BY 4.0.",
              fontproperties=regular, fontsize=10.5, color="#515965")
 
     # Use the rendered number's top edge, not a fixed distance in score units.
@@ -289,6 +444,11 @@ def render_chart(rows, snapshot, output, min_score, telegram, website):
     renderer = fig.canvas.get_renderer()
     gaps = [(flag.get_window_extent(renderer).y0 - value.get_window_extent(renderer).y1) * 72 / fig.dpi
             for flag, value in zip(flags, values)]
+    label_gap = min(label.get_window_extent(renderer).y0 for label in ax.get_xticklabels())
+    label_gap = (label_gap - date_label.get_window_extent(renderer).y1) * 72 / fig.dpi
+    if label_gap < 8:
+        plt.close(fig)
+        raise ValueError("Layout check failed: model labels are too close to the footer.")
     if min(gaps) < 6:
         plt.close(fig)
         raise ValueError("Layout check failed: country flags are too close to score labels.")
@@ -308,15 +468,50 @@ def render_chart(rows, snapshot, output, min_score, telegram, website):
             target.write_text(clean, encoding="utf-8", newline="\n")
     plt.close(fig)
     return {"minimum_flag_value_gap_points": round(min(gaps), 2),
+            "minimum_label_footer_gap_points": round(label_gap, 2),
             "open_weight_bars_hatched": sum(row["open_weights"] for row in rows),
             "input_icons_shown": len(input_icons),
             "minimum_input_icon_bar_clearance_points": round(min(clearances), 2) if clearances else None}
 
 
+def write_result(rows, snapshot, output, args, coding=False, model_snapshot=None, excluded=None):
+    output.mkdir(parents=True, exist_ok=True)
+    layout = render_chart(rows, snapshot, output, args.min_score, args.telegram, args.website, coding=coding)
+    fields = ["rank", "company", "country", "model", "score", "effort", "api_provider_count",
+              "input_modalities", "open_weights", "url"]
+    if coding:
+        fields += ["agent", "agent_id", "agent_model_label", "agent_url"]
+    with (output / "rating.csv").open("w", encoding="utf-8-sig", newline="") as stream:
+        writer = csv.DictWriter(stream, fields, extrasaction="ignore", lineterminator="\n")
+        writer.writeheader()
+        writer.writerows({**row, "input_modalities": ";".join(row["input_modalities"])} for row in rows)
+    (output / "snapshot.json").write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+    metadata = {key: snapshot[key] for key in ("source_url", "fetched_at", "index_version")}
+    metadata.update({"catalog_entries": len(snapshot["agents" if coding else "models"]), "developers_shown": len(rows),
+                     "minimum_score_inclusive": args.min_score, "estimated_scores_included": False,
+                     "public_api_required": True, "api_availability_field": "hostModelCount > 0",
+                     "restricted_effort": {},
+                     "snapshot_sha256": hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
+                     "layout": layout})
+    if coding:
+        metadata.update({"grouped_by": "model_creator.id", "routers_included": False,
+                         "score_scale": "indexScore * 100", "required_components": 3,
+                         "model_catalog_fetched_at": model_snapshot["fetched_at"],
+                         "model_catalog_source_url": model_snapshot["source_url"],
+                         "model_catalog_sha256": hashlib.sha256(json.dumps(model_snapshot, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
+                         "excluded_configurations": excluded})
+    (output / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"{'Coding agents' if coding else 'Intelligence'}: {len(rows)} developers from {metadata['catalog_entries']} entries; "
+          f"AA v{snapshot['index_version']}; data {snapshot['fetched_at']}")
+    print(f"Chart: {output / 'rating.png'}")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=Path("output"))
-    parser.add_argument("--snapshot", type=Path, help="Reuse a previously saved snapshot; no source refresh")
+    parser.add_argument("--snapshot", type=Path, help="Reuse a saved model catalog; no model source refresh")
+    parser.add_argument("--agents-snapshot", type=Path, help="Reuse a saved Coding Agent catalog")
+    parser.add_argument("--only", choices=("models", "coding-agents", "both"), default="both")
     parser.add_argument("--min-score", type=float, default=35)
     parser.add_argument("--telegram", default="https://t.me/warlocksu")
     parser.add_argument("--website", default="https://warlock.su")
@@ -327,26 +522,23 @@ def main(argv=None):
     if not isinstance(snapshot, dict) or not all(key in snapshot for key in ("models", "fetched_at", "index_version", "source_url")):
         raise ValueError("Snapshot must contain models, fetched_at, index_version, and source_url.")
     datetime.fromisoformat(snapshot["fetched_at"])
-    rows = select_models(snapshot["models"], args.min_score)
-    args.output.mkdir(parents=True, exist_ok=True)
-    layout = render_chart(rows, snapshot, args.output, args.min_score, args.telegram, args.website)
-    fields = ["rank", "company", "country", "model", "score", "effort", "api_provider_count",
-              "input_modalities", "open_weights", "url"]
-    with (args.output / "rating.csv").open("w", encoding="utf-8-sig", newline="") as stream:
-        writer = csv.DictWriter(stream, fields, extrasaction="ignore", lineterminator="\n")
-        writer.writeheader()
-        writer.writerows({**row, "input_modalities": ";".join(row["input_modalities"])} for row in rows)
-    (args.output / "snapshot.json").write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
-    metadata = {key: snapshot[key] for key in ("source_url", "fetched_at", "index_version")}
-    metadata.update({"catalog_entries": len(snapshot["models"]), "developers_shown": len(rows),
-                     "minimum_score_inclusive": args.min_score, "estimated_scores_included": False,
-                     "public_api_required": True, "api_availability_field": "hostModelCount > 0",
-                     "restricted_effort": {},
-                     "snapshot_sha256": hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
-                     "layout": layout})
-    (args.output / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"{len(rows)} developers from {len(snapshot['models'])} entries; AA v{snapshot['index_version']}; data {snapshot['fetched_at']}")
-    print(f"Chart: {args.output / 'rating.png'}")
+    rows = select_models(snapshot["models"], args.min_score) if args.only != "coding-agents" else None
+    agents_snapshot = None
+    if args.only != "models":
+        agents_snapshot = json.loads(args.agents_snapshot.read_text(encoding="utf-8")) if args.agents_snapshot else fetch_agents_snapshot()
+        if not isinstance(agents_snapshot, dict) or not all(key in agents_snapshot for key in ("agents", "fetched_at", "index_version", "source_url")):
+            raise ValueError("Agent snapshot must contain agents, fetched_at, index_version, and source_url.")
+        datetime.fromisoformat(agents_snapshot["fetched_at"])
+        if agents_snapshot["index_version"] != "2.0":
+            raise ValueError("Coding Agent index methodology changed; update the three-component validation before running.")
+        agents, excluded = select_agents(agents_snapshot["agents"], snapshot["models"], args.min_score)
+        if not agents:
+            raise ValueError("No eligible measured Coding Agent configurations; existing output preserved.")
+    if rows is not None:
+        write_result(rows, snapshot, args.output, args)
+    if agents_snapshot is not None:
+        write_result(agents, agents_snapshot, args.output / "coding-agents", args, coding=True,
+                     model_snapshot=snapshot, excluded=excluded)
 
 
 if __name__ == "__main__":

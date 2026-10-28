@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills/ai-fair-rating/scripts/rating.py"
 spec = importlib.util.spec_from_file_location("rating", SCRIPT)
@@ -21,6 +22,23 @@ def model(slug, score, creator="example", effort=None, estimated=False, **extra)
             "inputModalitySpeech": False, "inputModalityVideo": False,
             "creator": {"id": creator, "slug": creator, "name": creator, "country": "us", "color": "#123456"},
             "effort": {"slug": effort} if effort else None, **extra}
+
+
+def agent(identifier, label, score, creator="example", **extra):
+    return {"id": identifier, "displayLabel": "Harness - " + label,
+            "display": {"model": label, "agent": "Harness"},
+            "modelCreators": [{"slug": creator}], "agentCreator": {"slug": "unrelated-harness-company"},
+            "isRouter": False, "isUnavailable": False, "indexComponentCount": 3,
+            "indexScore": score, "evals": [{"datasetIndexName": component, "mean": {"reward": score},
+            "safety": {"attemptCount": 3}} for component in sorted(rating.AGENT_COMPONENTS)], **extra}
+
+
+def agent_page(rows, declared=None):
+    if declared is None:
+        declared = sum(r.get("isRouter") is False for r in rows if isinstance(r, dict))
+    record = ["$", "div", None, {"benchmarkRows": rows}]
+    return ('Artificial Analysis Coding Agent Index v2.0 1 of ' + str(declared) + ' models'
+            '<script>self.__next_f.push(' + json.dumps([1, 'a:' + json.dumps(record) + '\n']) + ')</script>')
 
 
 class SelectionTests(unittest.TestCase):
@@ -105,6 +123,20 @@ class SelectionTests(unittest.TestCase):
 
 
 class SourceTests(unittest.TestCase):
+    def test_agent_full_catalog_references_not_highlights(self):
+        first = agent("one", "first", .5)
+        second = agent("two", "second", .4)
+        flight = 'b:' + json.dumps(["$", "div", None, {"rows": [first]}]) + '\n'
+        flight += 'a:' + json.dumps(["$", "div", None, {"benchmarkRows": ["$b:props:rows:0", second]}]) + '\n'
+        page = ('Coding Agent Index v2.0 1 of 2 models<script>self.__next_f.push('
+                + json.dumps([1, flight]) + ')</script>')
+        rows, version = rating.parse_agents_page(page)
+        self.assertEqual(([r["id"] for r in rows], version), (["one", "two"], "2.0"))
+        for bad_page in (agent_page([first], declared=2), agent_page([first, first], declared=2),
+                         agent_page(["$ff:props:rows:0"], declared=1), 'Coding Agent Index v2.0 1 of 1 models'):
+            with self.subTest(page=bad_page[:80]), self.assertRaises(ValueError):
+                rating.parse_agents_page(bad_page)
+
     def test_public_payload_decoding(self):
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -126,6 +158,46 @@ class SourceTests(unittest.TestCase):
             rating.parse_page('<script>initialModels=[]</script>')
 
 
+class AgentSelectionTests(unittest.TestCase):
+    def test_measured_api_best_by_model_developer_and_threshold(self):
+        models = [model("first", None, estimated=True), model("second", None),
+                  model("offline", None, hostModelCount=0), model("threshold", None, "another"),
+                  model("below", None, "third")]
+        rows, excluded = rating.select_agents([
+            agent("one", "first", .500000001), agent("two", "second", .5),
+            agent("offline", "offline", .9), agent("estimated", "second", .95, indexScoreIsEstimated=True),
+            agent("unavailable", "second", .96, isUnavailable=True),
+            agent("router", "not-in-model-catalog", .99, isRouter=True),
+            agent("partial", "second", .97, indexComponentCount=2),
+            agent("missing", "second", None), agent("edge", "threshold", .35, "another"),
+            agent("below", "below", .349999999, "third"),
+        ], models)
+        self.assertEqual([r["slug"] for r in rows], ["first", "threshold"])
+        self.assertEqual(rows[0]["agent_id"], "one")
+        self.assertEqual(rows[0]["company"], "example")
+        self.assertEqual(rows[0]["score"], .500000001 * 100)
+        self.assertTrue({"no_public_api", "estimated_score", "unavailable_configuration", "mixed_model_router",
+                         "incomplete_benchmarks", "missing_score", "below_threshold"}.issubset({r["reason"] for r in excluded}))
+
+    def test_catalog_matching_preserves_release_and_effort(self):
+        models = [model("old", 40, name="Model Max", shortName="Model Max"),
+                  model("new", 45, name="Model Max (0902)", shortName="Model Max (0902)")]
+        rows, _ = rating.select_agents([agent("one", "Model Max", .5)], models)
+        self.assertEqual(rows[0]["slug"], "old")
+        for bad_models in ([], models + [model("duplicate", 50, name="Model Max")]):
+            with self.assertRaisesRegex(ValueError, "uniquely match"):
+                rating.select_agents([agent("one", "Model Max", .5)], bad_models)
+
+    def test_schema_and_measurement_failures(self):
+        a = agent("one", "first", .5)
+        for changed in ({"indexScore": 50}, {"isUnavailable": None},
+                        {"indexScore": .7}, {"modelCreators": []}):
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                rating.select_agents([{**a, **changed}], [model("first", 40)])
+        a["evals"][0]["safety"]["attemptCount"] = 0
+        self.assertEqual(rating.select_agents([a], [model("first", 40)])[0], [])
+
+
 class OutputTests(unittest.TestCase):
     def test_snapshot_replay_and_flag_clearance(self):
         from PIL import Image
@@ -138,13 +210,14 @@ class OutputTests(unittest.TestCase):
             source = root / "source.json"
             source.write_text(json.dumps(snapshot), encoding="utf-8")
             output = root / "result"
-            rating.main(["--snapshot", str(source), "--output", str(output)])
+            rating.main(["--only", "models", "--snapshot", str(source), "--output", str(output)])
             metadata = json.loads((output / "metadata.json").read_text())
             self.assertEqual(metadata["fetched_at"], snapshot["fetched_at"])
             self.assertEqual(metadata["developers_shown"], 2)
             self.assertTrue(metadata["public_api_required"])
             self.assertEqual(metadata["restricted_effort"], {})
             self.assertGreaterEqual(metadata["layout"]["minimum_flag_value_gap_points"], 6)
+            self.assertGreaterEqual(metadata["layout"]["minimum_label_footer_gap_points"], 8)
             self.assertEqual(metadata["layout"]["input_icons_shown"], 5)
             self.assertEqual(metadata["layout"]["open_weight_bars_hatched"], 1)
             self.assertGreaterEqual(metadata["layout"]["minimum_input_icon_bar_clearance_points"], 0)
@@ -155,6 +228,36 @@ class OutputTests(unittest.TestCase):
             with Image.open(output / "rating.png") as image:
                 self.assertGreater(image.width, 2000)
                 image.verify()
+
+    def test_default_builds_both_and_replays_separate_snapshots(self):
+        snapshot = {"source_url": rating.SOURCE, "fetched_at": "2026-10-28T21:00:00+00:00",
+                    "index_version": "5.0", "models": [model("first", 41)]}
+        agents_snapshot = {"source_url": rating.AGENT_SOURCE, "fetched_at": "2026-10-28T22:00:00+00:00",
+                           "index_version": "2.0", "agents": [agent("one", "first", .51)]}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(rating, "fetch_snapshot", return_value=snapshot), patch.object(
+                    rating, "fetch_agents_snapshot", return_value=agents_snapshot):
+                rating.main(["--output", str(root / "fresh")])
+            rating.main(["--snapshot", str(root / "fresh/snapshot.json"), "--agents-snapshot",
+                         str(root / "fresh/coding-agents/snapshot.json"), "--output", str(root / "replay")])
+            for folder, date in (("", snapshot["fetched_at"]), ("coding-agents", agents_snapshot["fetched_at"])):
+                result = root / "replay" / folder
+                self.assertTrue((result / "rating.png").exists())
+                metadata = json.loads((result / "metadata.json").read_text())
+                self.assertEqual(metadata["fetched_at"], date)
+                self.assertGreaterEqual(metadata["layout"]["minimum_flag_value_gap_points"], 6)
+                self.assertGreaterEqual(metadata["layout"]["minimum_label_footer_gap_points"], 8)
+            self.assertEqual(metadata["model_catalog_fetched_at"], snapshot["fetched_at"])
+            self.assertFalse(metadata["routers_included"])
+            self.assertIn("Harness", (root / "replay/coding-agents/rating.csv").read_text(encoding="utf-8-sig"))
+            preserved = root / "replay/rating.png"
+            before = preserved.read_bytes()
+            with patch.object(rating, "fetch_snapshot", return_value=snapshot), patch.object(
+                    rating, "fetch_agents_snapshot", side_effect=ValueError("source changed")):
+                with self.assertRaisesRegex(ValueError, "source changed"):
+                    rating.main(["--output", str(root / "replay")])
+            self.assertEqual(preserved.read_bytes(), before)
 
 
 if __name__ == "__main__":
