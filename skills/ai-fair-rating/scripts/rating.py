@@ -19,7 +19,6 @@ from urllib.request import Request, urlopen
 
 SOURCE = "https://artificialanalysis.ai/models/comparisons"
 AGENT_SOURCE = "https://artificialanalysis.ai/agents/coding-agents"
-AGENT_COMPONENTS = {"frontiercode-v1.1-main", "swe-atlas-qna", "terminal-bench-v4"}
 REFERENCE_RELEASE = "qwen3-8-27b"
 SKILL_DIR = Path(__file__).resolve().parents[1]
 FLAG_SOURCE = "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/"
@@ -138,9 +137,9 @@ def decode_catalog(payload, key_hex):
 def parse_unavailable_api_ids(script):
     """Read the public client's checkered-pattern list, without executing JavaScript."""
     identifier = r"[A-Za-z_$][\w$]*"
-    pattern = (r"new Set\((\[[^\]]*\])\)," + identifier + r'="checkered",' + identifier +
-               r"=\{\[" + identifier + r"\]:" + identifier + r"\.I\.notPubliclyAvailable\}")
-    matches = re.findall(pattern, script)
+    pattern = (r"new Set\((\[[^\]]*\])\),(" + identifier + r')="No publicly available API",(' + identifier +
+               r')="checkered",' + identifier + r"=\{\[\3\]:\2\}")
+    matches = [match[1] for match in re.finditer(pattern, script)]
     if not matches:
         return None
     if len(matches) != 1:
@@ -257,14 +256,14 @@ def reference_model(models):
         if (model.get("release") or {}).get("slug") != REFERENCE_RELEASE:
             continue
         score = model.get("intelligenceIndex")
-        if not finite_number(score) or model.get("intelligenceIndexIsEstimated") is not False:
+        if not finite_number(score):
             continue
         details = model_details(model)
         if details:
             eligible.append({"slug": model["slug"], "name": model["name"], "score": score,
                              "effort": details["effort"], "url": details["url"], "release_slug": REFERENCE_RELEASE})
     if not eligible:
-        raise ValueError(f"No measured API result for reference release {REFERENCE_RELEASE}. "
+        raise ValueError(f"No numeric API score for reference release {REFERENCE_RELEASE}. "
                          "Refresh the model catalog or check the source; do not substitute a fixed threshold.")
     return min(eligible, key=lambda m: (-m["score"], m["slug"]))
 
@@ -275,7 +274,7 @@ def select_models(models, min_score=None):
     candidates = []
     for model in models:
         score = model.get("intelligenceIndex")
-        if not finite_number(score) or model.get("intelligenceIndexIsEstimated") is not False:
+        if not finite_number(score):
             continue
         candidate = model_details(model)
         if candidate:
@@ -302,8 +301,6 @@ def select_agents(agents, models):
             reason = "missing_score"
         elif not 0 <= score <= 1:
             raise ValueError(f"Invalid Coding Agent indexScore for {agent.get('id')}; expected 0..1.")
-        elif agent.get("indexScoreIsEstimated") is True:
-            reason = "estimated_score"
         for field in ("isRouter", "isUnavailable"):
             if type(agent.get(field)) is not bool:
                 raise ValueError(f"Missing Coding Agent {field} for {agent.get('id')}; update the parser.")
@@ -311,19 +308,6 @@ def select_agents(agents, models):
             reason = "mixed_model_router"
         elif agent["isUnavailable"]:
             reason = "unavailable_configuration"
-        elif not reason:
-            evals = agent.get("evals")
-            if not isinstance(evals, list) or agent.get("indexComponentCount") != 3 or len(evals) != 3:
-                reason = "incomplete_benchmarks"
-            elif any(not finite_number(e.get("mean", {}).get("reward")) or
-                     not 0 <= e["mean"]["reward"] <= 1 or
-                     not isinstance(e.get("safety"), dict) or
-                     type(e["safety"].get("attemptCount")) is not int or e["safety"]["attemptCount"] <= 0 for e in evals):
-                reason = "missing_measured_attempts"
-            elif {e.get("datasetIndexName") for e in evals} != AGENT_COMPONENTS:
-                raise ValueError("Coding Agent benchmark components changed; update the parser and methodology.")
-            elif not math.isclose(score, sum(e["mean"]["reward"] for e in evals) / 3, abs_tol=1e-10):
-                raise ValueError("Coding Agent index disagrees with measured components; check index methodology.")
         if reason:
             excluded.append({"id": agent.get("id"), "label": agent.get("displayLabel"), "reason": reason})
             continue
@@ -574,7 +558,7 @@ def write_result(rows, snapshot, output, args, coding=False, model_snapshot=None
     metadata.update({"catalog_entries": len(snapshot["agents" if coding else "models"]), "developers_shown": len(rows),
                      "minimum_score_inclusive": reference["score"] if reference else None,
                      "score_filter": "at_least_reference_model" if reference else "none",
-                     "estimated_scores_included": False,
+                     "score_status_filter": "any_finite_numeric",
                      "public_api_required": True,
                      "api_availability_field": "hostModelCount > 0 and aa_public_api_unavailable is False",
                      "restricted_effort": {},
@@ -587,7 +571,7 @@ def write_result(rows, snapshot, output, args, coding=False, model_snapshot=None
         metadata["public_api_markers"] = catalog["public_api_markers"]
     if coding:
         metadata.update({"grouped_by": "model_creator.id", "routers_included": False,
-                         "score_scale": "indexScore * 100", "required_components": 3,
+                         "score_scale": "indexScore * 100",
                          "model_catalog_fetched_at": model_snapshot["fetched_at"],
                          "model_catalog_source_url": model_snapshot["source_url"],
                          "model_catalog_sha256": hashlib.sha256(json.dumps(model_snapshot, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
@@ -619,8 +603,6 @@ def main(argv=None):
         if not isinstance(agents_snapshot, dict) or not all(key in agents_snapshot for key in ("agents", "fetched_at", "index_version", "source_url")):
             raise ValueError("Agent snapshot must contain agents, fetched_at, index_version, and source_url.")
         datetime.fromisoformat(agents_snapshot["fetched_at"])
-        if agents_snapshot["index_version"] != "2.0":
-            raise ValueError("Coding Agent index methodology changed; update the three-component validation before running.")
         agents, excluded = select_agents(agents_snapshot["agents"], snapshot["models"])
         if not agents:
             raise ValueError("No eligible measured Coding Agent configurations; existing output preserved.")

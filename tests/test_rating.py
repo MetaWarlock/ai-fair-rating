@@ -13,9 +13,8 @@ rating = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rating)
 
 
-def model(slug, score, creator="example", effort=None, estimated=False, **extra):
+def model(slug, score, creator="example", effort=None, **extra):
     return {"slug": slug, "name": slug, "shortName": slug, "intelligenceIndex": score,
-            "intelligenceIndexIsEstimated": estimated,
             "hostModelCount": 1,
             "aa_public_api_unavailable": False,
             "isOpenWeights": False,
@@ -29,9 +28,7 @@ def agent(identifier, label, score, creator="example", **extra):
     return {"id": identifier, "displayLabel": "Harness - " + label,
             "display": {"model": label, "agent": "Harness"},
             "modelCreators": [{"slug": creator}], "agentCreator": {"slug": "unrelated-harness-company"},
-            "isRouter": False, "isUnavailable": False, "indexComponentCount": 3,
-            "indexScore": score, "evals": [{"datasetIndexName": component, "mean": {"reward": score},
-            "safety": {"attemptCount": 3}} for component in sorted(rating.AGENT_COMPONENTS)], **extra}
+            "isRouter": False, "isUnavailable": False, "indexScore": score, **extra}
 
 
 def agent_page(rows, declared=None):
@@ -47,7 +44,6 @@ class SelectionTests(unittest.TestCase):
         release = {"slug": rating.REFERENCE_RELEASE}
         reference = model("reference-xhigh", 20.1068756031705, "alibaba", "xhigh", release=release)
         models = [reference, model("reference-low", 19, "alibaba", "low", release=release),
-                  model("reference-estimate", 80, "alibaba", "max", estimated=True, release=release),
                   model("reference-unavailable", 90, "alibaba", "max", hostModelCount=0, release=release),
                   model("equal", reference["intelligenceIndex"], "equal"),
                   model("below", reference["intelligenceIndex"] - .0000000001, "below"),
@@ -57,20 +53,19 @@ class SelectionTests(unittest.TestCase):
         reference["intelligenceIndex"] = 21
         self.assertEqual([r["slug"] for r in rating.select_models(models)], ["reference-xhigh"])
 
-    def test_missing_or_unmeasured_reference_is_an_error(self):
+    def test_missing_reference_score_is_an_error(self):
         for entries in ([], [model("only-unrelated", 50)],
-                        [model("reference", None, release={"slug": rating.REFERENCE_RELEASE})],
-                        [model("reference", 50, estimated=True, release={"slug": rating.REFERENCE_RELEASE})]):
+                        [model("reference", None, release={"slug": rating.REFERENCE_RELEASE})]):
             with self.subTest(entries=entries), self.assertRaisesRegex(ValueError, "reference release"):
                 rating.select_models(entries)
 
-    def test_measured_winner_and_inclusive_threshold(self):
+    def test_numeric_winner_and_inclusive_threshold(self):
         rows = rating.select_models([
-            model("estimate", 90, estimated=True), model("measured", 41.123456),
+            model("measured", 41.123456),
             model("almost-equal", 41.123455), model("at-threshold", 35, "threshold"),
             model("below", 34.99999, "below"), model("no-score", None, "missing"),
             model("nan", float("nan"), "nan"), model("boolean", True, "bool"),
-            model("unknown-status", 80, "unknown", estimated=None),
+            model("text", "80", "text"),
         ], min_score=35)
         self.assertEqual([m["slug"] for m in rows], ["measured", "at-threshold"])
         self.assertEqual(rows[0]["score"], 41.123456)
@@ -100,7 +95,6 @@ class SelectionTests(unittest.TestCase):
                 rows = rating.select_models([
                     model("offline-best", 90, creator, "max", hostModelCount=0),
                     model("marked-unavailable", 91, creator, "max", hostModelCount=9, aa_public_api_unavailable=True),
-                    model("online-estimate", 95, creator, "max", estimated=True),
                     model("online-best", 52, creator, "max", hostModelCount=2),
                     model("online-older", 48, creator, "xhigh"),
                 ], min_score=35)
@@ -166,9 +160,10 @@ class SourceTests(unittest.TestCase):
     def test_explicit_api_marker_parser_and_fetch_enrichment(self):
         identifier = "909ed0ba-bcc5-4f38-8162-08a4e187a772"
         script = ('let unrelated=new Set(["not-an-api-id"]);'
-                  'let s=new Set(["' + identifier + '"]),p="checkered",l={[p]:t.I.notPubliclyAvailable};')
+                  'let i=new Set(["' + identifier + '"]),l="No publicly available API",o="checkered",s={[o]:l};')
         self.assertEqual(rating.parse_unavailable_api_ids(script), [identifier])
         self.assertIsNone(rating.parse_unavailable_api_ids('let unrelated=new Set(["anything"]);'))
+        self.assertIsNone(rating.parse_unavailable_api_ids(script.replace('"No publicly available API"', '"Other"')))
         self.assertEqual(rating.parse_unavailable_api_ids(script.replace('"' + identifier + '"', '')), [])
         with self.assertRaisesRegex(ValueError, "Invalid"):
             rating.parse_unavailable_api_ids(script.replace(identifier, "bad-id"))
@@ -234,15 +229,14 @@ class AgentSelectionTests(unittest.TestCase):
         self.assertEqual(excluded[0]["reason"], "no_public_api")
 
     def test_measured_api_best_by_model_developer_without_score_threshold(self):
-        models = [model("first", None, estimated=True), model("second", None),
+        models = [model("first", None), model("second", None),
                   model("offline", None, hostModelCount=0), model("threshold", None, "another"),
                   model("below", None, "third"), model("zero", None, "fourth")]
         rows, excluded = rating.select_agents([
             agent("one", "first", .500000001), agent("two", "second", .5),
-            agent("offline", "offline", .9), agent("estimated", "second", .95, indexScoreIsEstimated=True),
+            agent("offline", "offline", .9),
             agent("unavailable", "second", .96, isUnavailable=True),
             agent("router", "not-in-model-catalog", .99, isRouter=True),
-            agent("partial", "second", .97, indexComponentCount=2),
             agent("missing", "second", None), agent("edge", "threshold", .35, "another"),
             agent("below", "below", .349999999, "third"),
             agent("zero", "zero", 0, "fourth"),
@@ -251,8 +245,8 @@ class AgentSelectionTests(unittest.TestCase):
         self.assertEqual(rows[0]["agent_id"], "one")
         self.assertEqual(rows[0]["company"], "example")
         self.assertEqual(rows[0]["score"], .500000001 * 100)
-        self.assertTrue({"no_public_api", "estimated_score", "unavailable_configuration", "mixed_model_router",
-                         "incomplete_benchmarks", "missing_score"}.issubset({r["reason"] for r in excluded}))
+        self.assertEqual({"no_public_api", "unavailable_configuration", "mixed_model_router",
+                          "missing_score"}, {r["reason"] for r in excluded})
 
     def test_catalog_matching_preserves_release_and_effort(self):
         models = [model("old", 40, name="Model Max", shortName="Model Max"),
@@ -263,14 +257,11 @@ class AgentSelectionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "uniquely match"):
                 rating.select_agents([agent("one", "Model Max", .5)], bad_models)
 
-    def test_schema_and_measurement_failures(self):
+    def test_schema_failures(self):
         a = agent("one", "first", .5)
-        for changed in ({"indexScore": 50}, {"isUnavailable": None},
-                        {"indexScore": .7}, {"modelCreators": []}):
+        for changed in ({"indexScore": 50}, {"isUnavailable": None}, {"isRouter": None}, {"modelCreators": []}):
             with self.subTest(changed=changed), self.assertRaises(ValueError):
                 rating.select_agents([{**a, **changed}], [model("first", 40)])
-        a["evals"][0]["safety"]["attemptCount"] = 0
-        self.assertEqual(rating.select_agents([a], [model("first", 40)])[0], [])
 
 
 class OutputTests(unittest.TestCase):

@@ -1,28 +1,28 @@
 {
   "source_url": "https://artificialanalysis.ai/agents/coding-agents",
-  "fetched_at": "2026-10-28T21:54:03.103633+00:00",
+  "fetched_at": "2026-11-05T00:31:46.057034+00:00",
   "index_version": "2.0",
-  "catalog_entries": 32,
-  "developers_shown": 11,
+  "catalog_entries": 34,
+  "developers_shown": 12,
   "minimum_score_inclusive": null,
   "score_filter": "none",
-  "estimated_scores_included": false,
+  "score_status_filter": "any_finite_numeric",
   "public_api_required": true,
   "api_availability_field": "hostModelCount > 0 and aa_public_api_unavailable is False",
   "restricted_effort": {},
-  "snapshot_sha256": "9c369a792fe6716c340d8f843afe69448d3429a62a7b94d69350f99a00dafd6d",
+  "snapshot_sha256": "d9d4b3822268eb693c8183b4c6238f9610faec961cff1021b4e8a9df0e5d1a55",
   "layout": {
     "minimum_flag_value_gap_points": 7.0,
     "minimum_label_footer_gap_points": 13.69,
-    "open_weight_bars_hatched": 5,
-    "input_icons_shown": 23,
+    "open_weight_bars_hatched": 6,
+    "input_icons_shown": 25,
     "input_icons_above_short_bars": 0,
     "minimum_input_icon_bar_clearance_points": 9.0
   },
   "public_api_markers": {
     "label": "No publicly available API",
-    "source_url": "https://artificialanalysis.ai/_next/static/chunks/43206-f4c96c37c40ec3b7.js",
-    "source_sha256": "416e23b07c5ab83e24154a0cd633053a7f4a74f1b22b7594eedcdc9e97504a01",
+    "source_url": "https://artificialanalysis.ai/_next/static/chunks/1859-418d20cfc4c72c9a.js",
+    "source_sha256": "4927bdd94eb8bb7261da54719ddfb985172a4b226fa53dcbd367fda1d62b41fa",
     "unavailable_model_ids": [
       "e994a6e0-d36b-4dab-8ae1-c1b469e4d9e2",
       "909ed0ba-bcc5-4f38-8162-08a4e187a772",
@@ -36,10 +36,9 @@
   "grouped_by": "model_creator.id",
   "routers_included": false,
   "score_scale": "indexScore * 100",
-  "required_components": 3,
-  "model_catalog_fetched_at": "2026-10-28T21:54:02.065872+00:00",
+  "model_catalog_fetched_at": "2026-11-05T00:31:43.680156+00:00",
   "model_catalog_source_url": "https://artificialanalysis.ai/models/comparisons",
-  "model_catalog_sha256": "9240a7b14d8a9a39147b62083614d0caa859276ab2d2faba14321f45c7edf911",
+  "model_catalog_sha256": "59c78bad82330366275ced8f59bc414cb6e953a82ebc72f22bde56cb8d4ece27",
   "excluded_configurations": [
     {
       "id": "dabb064c01568bc018ba730cc39c4a96",
@@ -48,7 +47,7 @@
     },
     {
       "id": "24cd2ab21d1cf5161ddd831f0949bff4",
-      "label": "GitHub Copilot - Copilot Fusion (Max)",
+      "label": "GitHub Copilot - Copilot Fusion (max)",
       "reason": "mixed_model_router"
     },
     {
