@@ -287,8 +287,10 @@ class OutputTests(unittest.TestCase):
 
         snapshot = {"source_url": rating.SOURCE, "fetched_at": "2026-10-15T20:00:00+00:00",
                     "index_version": "4.3.2", "models": [model("first", 41.123456, inputModalityImage=True,
-                    inputModalitySpeech=True, inputModalityVideo=True), model("second", 35, "second", isOpenWeights=True,
-                    release={"slug": rating.REFERENCE_RELEASE})]}
+                    inputModalitySpeech=True, inputModalityVideo=True, shortName="DeepSeek V4.1 Flash 1017 (max)",
+                    cacheHitPrice=0.006, price1mInputTokens=0.3, price1mOutputTokens=1.2),
+                    model("second", 35, "second", isOpenWeights=True, price1mOutputTokens=0,
+                          release={"slug": rating.REFERENCE_RELEASE})]}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "source.json"
@@ -309,8 +311,12 @@ class OutputTests(unittest.TestCase):
             self.assertGreaterEqual(metadata["layout"]["minimum_input_icon_bar_clearance_points"], 0)
             self.assertIn("41.123456", (output / "rating.csv").read_text(encoding="utf-8-sig"))
             self.assertIn("text;image;audio;video", (output / "rating.csv").read_text(encoding="utf-8-sig"))
-            self.assertIn("https://t.me/warlocksu", (output / "rating.svg").read_text(encoding="utf-8"))
-            self.assertIn("<pattern", (output / "rating.svg").read_text(encoding="utf-8"))
+            svg = (output / "rating.svg").read_text(encoding="utf-8")
+            self.assertIn("https://t.me/warlocksu", svg)
+            self.assertIn("<pattern", svg)
+            self.assertRegex(svg, r'font-size: 10px[^>]*>DeepSeek V4\.1 Flash 1017 \(max\)</text>')
+            self.assertRegex(svg, r'font-size: 8px[^>]*>\$0\.006 \| \$0\.30 \| \$1\.20</text>')
+            self.assertIn(">— | — | $0.00</text>", svg)
             with Image.open(output / "rating.png") as image:
                 self.assertGreater(image.width, 2000)
                 image.verify()
@@ -339,6 +345,9 @@ class OutputTests(unittest.TestCase):
             self.assertIsNone(metadata["minimum_score_inclusive"])
             self.assertEqual(metadata["score_filter"], "none")
             self.assertIn("Harness", (root / "replay/coding-agents/rating.csv").read_text(encoding="utf-8-sig"))
+            agent_svg = (root / "replay/coding-agents/rating.svg").read_text(encoding="utf-8")
+            self.assertRegex(agent_svg, r'font-size: 10px[^>]*>first</text>')
+            self.assertRegex(agent_svg, r'font-size: 8px[^>]*>Harness</text>')
             preserved = root / "replay/rating.png"
             before = preserved.read_bytes()
             with patch.object(rating, "fetch_snapshot", return_value=snapshot), patch.object(

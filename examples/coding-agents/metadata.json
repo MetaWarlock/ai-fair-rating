@@ -13,7 +13,7 @@
   "snapshot_sha256": "d9d4b3822268eb693c8183b4c6238f9610faec961cff1021b4e8a9df0e5d1a55",
   "layout": {
     "minimum_flag_value_gap_points": 7.0,
-    "minimum_label_footer_gap_points": 13.69,
+    "minimum_label_footer_gap_points": 28.75,
     "open_weight_bars_hatched": 6,
     "input_icons_shown": 25,
     "input_icons_above_short_bars": 0,

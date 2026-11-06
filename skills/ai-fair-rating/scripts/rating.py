@@ -14,6 +14,7 @@ import sys
 import textwrap
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from decimal import Decimal
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
@@ -26,6 +27,7 @@ INPUT_MODALITIES = (("text", "inputModalityText", "Текст"),
                     ("image", "inputModalityImage", "Фото"),
                     ("audio", "inputModalitySpeech", "Аудио"),
                     ("video", "inputModalityVideo", "Видео"))
+API_PRICE_FIELDS = ("cacheHitPrice", "price1mInputTokens", "price1mOutputTokens")
 
 
 def download(url):
@@ -278,6 +280,7 @@ def select_models(models, min_score=None):
             continue
         candidate = model_details(model)
         if candidate:
+            candidate.update({field: model.get(field) for field in API_PRICE_FIELDS})
             candidates.append({**candidate, "score": score})
     return best_per_developer(candidates, min_score)
 
@@ -354,6 +357,16 @@ def company_label(name):
     return "\n".join(r"$\mathbf{" + line + "}$" for line in escaped)
 
 
+def format_api_price(row, field):
+    price = row.get(field)
+    if price is None:
+        return "—"
+    if not finite_number(price) or price < 0:
+        raise ValueError(f"Invalid API price {field} for {row['short_name']}; check the model catalog.")
+    dollars, _, fraction = format(Decimal(str(price)), "f").partition(".")
+    return f"${dollars}.{fraction.rstrip('0').ljust(2, '0')}"
+
+
 def input_icon(kind):
     """Small vector pictograms, shared by the bars and their legend."""
     from matplotlib.lines import Line2D
@@ -425,11 +438,28 @@ def render_chart(rows, snapshot, output, reference, telegram, website, coding=Fa
         values.append(ax.annotate(f"{row['score']:.2f}", (center, row["score"]),
                                  xytext=(0, 7), textcoords="offset points", ha="center", va="bottom",
                                  fontproperties=regular, fontsize=12.5, color="#1b2027", zorder=4))
-    labels = [company_label(m["company"]) + "\n" + "\n".join(textwrap.wrap(
-        m["short_name"].replace(" with fallback", "; fallback"), 25)) +
-        ("\n" + "\n".join(textwrap.wrap(m["agent"], 25)) if coding else "") for m in rows]
-    ax.set_xticks(range(len(rows)), labels, rotation=58, ha="right", rotation_mode="anchor", fontsize=12)
+    rotation = 58
+    companies = [company_label(row["company"]) for row in rows]
+    ax.set_xticks(range(len(rows)), companies, rotation=rotation, ha="right", rotation_mode="anchor", fontsize=12)
     ax.tick_params(axis="x", length=0, pad=14)
+    shift = ScaledTranslation(-5 / fig.dpi, 0, fig.dpi_scale_trans)
+    angle = math.radians(rotation)
+    tick_labels = ax.get_xticklabels()
+    extra_labels = []
+    for tick, row in zip(tick_labels, rows):
+        tick.set_transform(tick.get_transform() + shift)
+        model_lines = textwrap.wrap(row["short_name"].replace(" with fallback", "; fallback"), 32)
+        detail = ("\n".join(textwrap.wrap(row["agent"], 37)) if coding else
+                  " | ".join(format_api_price(row, field) for field in API_PRICE_FIELDS))
+        model_offset = 14 * len(tick.get_text().splitlines())
+        lines = (("\n".join(model_lines), 10, model_offset),
+                 (detail, 8, model_offset + 13 * len(model_lines)))
+        for label, size, offset in lines:
+            line_shift = ScaledTranslation(offset * math.sin(angle) / 72,
+                                           -offset * math.cos(angle) / 72, fig.dpi_scale_trans)
+            extra_labels.append(ax.text(*tick.get_position(), label, transform=tick.get_transform() + line_shift,
+                                        rotation=rotation, rotation_mode="anchor", ha="right", va="top",
+                                        fontsize=size, fontweight="normal", parse_math=False))
     ax.tick_params(axis="y", length=0, pad=9, labelsize=12)
     ax.set_ylim(0, max(1, max(m["score"] for m in rows)) * 1.24)
     ax.set_xlim(-.65, len(rows) - .35)
@@ -463,8 +493,13 @@ def render_chart(rows, snapshot, output, reference, telegram, website, coding=Fa
     fig.text(.542, .811, "Открытые веса модели", fontproperties=regular, fontsize=10.5,
              va="center", color="#515965")
     data_date = datetime.fromisoformat(snapshot["fetched_at"]).strftime("%d.%m.%Y")
-    date_label = fig.text(.062, .064, f"{len(rows)} разработчиков · индекс v{snapshot['index_version']} · данные AA: {data_date} (UTC)",
-             fontproperties=regular, fontsize=11, color="#515965")
+    footer_label = fig.text(.062, .064, f"{len(rows)} разработчиков · индекс v{snapshot['index_version']} · данные AA: {data_date} (UTC)",
+                            fontproperties=regular, fontsize=11, color="#515965")
+    if not coding:
+        footer_label = fig.text(.062, .085,
+                               "Цены API, USD · 1M INPUT TOKENS (CACHE HIT) | "
+                               "1M INPUT TOKENS (CACHE MISS) | 1M OUTPUT TOKENS",
+                               fontproperties=regular, fontsize=10.5, color="#515965")
     fig.text(.062, .039, "Флаги: страна разработчика по данным Artificial Analysis. Отбор и сортировка — по исходным точным баллам.",
              fontproperties=regular, fontsize=10.5, color="#515965")
     source_label = snapshot["source_url"].removeprefix("https://")
@@ -507,8 +542,8 @@ def render_chart(rows, snapshot, output, reference, telegram, website, coding=Fa
     renderer = fig.canvas.get_renderer()
     gaps = [(flag.get_window_extent(renderer).y0 - value.get_window_extent(renderer).y1) * 72 / fig.dpi
             for flag, value in zip(flags, values)]
-    label_gap = min(label.get_window_extent(renderer).y0 for label in ax.get_xticklabels())
-    label_gap = (label_gap - date_label.get_window_extent(renderer).y1) * 72 / fig.dpi
+    label_gap = min(label.get_window_extent(renderer).y0 for label in [*tick_labels, *extra_labels])
+    label_gap = (label_gap - footer_label.get_window_extent(renderer).y1) * 72 / fig.dpi
     if label_gap < 8:
         plt.close(fig)
         raise ValueError("Layout check failed: model labels are too close to the footer.")
